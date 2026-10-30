@@ -1,0 +1,246 @@
+import Anthropic from '@anthropic-ai/sdk';
+import { randomInt } from 'node:crypto';
+import { z } from 'zod';
+import { config } from '../../config.js';
+import { makesGuarantee, mentionsAlcohol, screenQuestion } from '../safety/safety.js';
+import { DIRECTIONS, type Tier, type Topic } from './catalog.js';
+import { musicLinks, type Library } from './library.js';
+
+export const DISCLAIMER = 'For entertainment purposes only. Not financial, medical, or legal advice.';
+
+/** What the model returns. Picks are indexes into the library slice it was shown. */
+const ModelOutput = z.object({
+  direction: z.enum(DIRECTIONS),
+  direction_note: z.string().min(1).max(200),
+  answer: z.string().min(1).max(1500),
+  outfit_index: z.number().int(),
+  shoes_index: z.number().int(),
+  avoid_color_index: z.number().int(),
+  song_index: z.number().int(),
+  drink_index: z.number().int(),
+  food_index: z.number().int(),
+  lucky_action: z.string().min(1).max(260),
+  gentle_reminder: z.string().min(1).max(240),
+  dos: z.array(z.string().max(120)).min(1).max(4),
+  donts: z.array(z.string().max(120)).min(1).max(4),
+  lucky_hour: z.string().max(60),
+  reflections: z.array(z.string().max(200)).max(3),
+  deity_message: z.string().min(1).max(300),
+});
+type ModelOutput = z.infer<typeof ModelOutput>;
+
+const OUTPUT_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: Object.keys(ModelOutput.shape),
+  properties: {
+    direction: { type: 'string', enum: [...DIRECTIONS] },
+    direction_note: { type: 'string' },
+    answer: { type: 'string' },
+    outfit_index: { type: 'integer' },
+    shoes_index: { type: 'integer' },
+    avoid_color_index: { type: 'integer' },
+    song_index: { type: 'integer' },
+    drink_index: { type: 'integer' },
+    food_index: { type: 'integer' },
+    lucky_action: { type: 'string' },
+    gentle_reminder: { type: 'string' },
+    dos: { type: 'array', items: { type: 'string' } },
+    donts: { type: 'array', items: { type: 'string' } },
+    lucky_hour: { type: 'string' },
+    reflections: { type: 'array', items: { type: 'string' } },
+    deity_message: { type: 'string' },
+  },
+};
+
+/** The stored, rendered result (plan §M4). */
+export const ReadingResult = z.object({
+  deityMessage: z.string(),
+  answer: z.string(),
+  direction: z.object({ value: z.string(), note: z.string() }),
+  outfit: z.object({ style: z.string(), color: z.string() }),
+  shoes: z.object({ style: z.string(), color: z.string() }),
+  avoidColor: z.string(),
+  song: z.object({ title: z.string(), artist: z.string(), spotifyUrl: z.string(), appleMusicUrl: z.string() }),
+  drink: z.string(),
+  food: z.string(),
+  luckyAction: z.string(),
+  gentleReminder: z.string(),
+  dos: z.array(z.string()),
+  donts: z.array(z.string()),
+  luckyHour: z.string().optional(),
+  reflections: z.array(z.string()).optional(),
+  disclaimer: z.string(),
+  aiGenerated: z.boolean(),
+  generator: z.string(),
+});
+export type ReadingResult = z.infer<typeof ReadingResult>;
+
+export interface GenerateInput {
+  deity: { name: string; persona_prompt: string };
+  topic: Topic;
+  tier: Tier;
+  question: string;
+  library: Library;
+  /** User's own feedback text, newest first. Empty when memory is off. */
+  memories: string[];
+  localDate: string;
+}
+
+// --- Content rules (Appendix A) --------------------------------------------
+
+const VAGUE = /\b(try to|try and|a bit|a little more|more often|as much as|feel the|feel your|somehow|maybe|perhaps|if possible|when you can|sometime)\b/i;
+
+/** A lucky action must be one concrete, verifiable action doable today. */
+export function isPreciseAction(s: string): boolean {
+  if (VAGUE.test(s)) return false;
+  if (!/\b(today|tonight|before|by)\b/i.test(s)) return false;
+  return s.length <= 260;
+}
+
+function checkOutput(o: ModelOutput): string | null {
+  const text = [o.answer, o.lucky_action, o.gentle_reminder, o.deity_message, o.direction_note, ...o.dos, ...o.donts, ...o.reflections].join('\n');
+  if (makesGuarantee(text)) return 'guarantee';
+  if (mentionsAlcohol(text)) return 'alcohol';
+  if (!screenQuestion(text).ok) return 'unsafe';
+  return null;
+}
+
+const at = <T>(xs: T[], i: number) => xs[Math.min(Math.max(0, i), xs.length - 1)];
+
+function assemble(o: ModelOutput, input: GenerateInput, generator: string): ReadingResult {
+  const lib = input.library;
+  return {
+    deityMessage: o.deity_message,
+    answer: o.answer,
+    direction: { value: o.direction, note: o.direction_note },
+    outfit: at(lib.outfits, o.outfit_index),
+    shoes: at(lib.shoes, o.shoes_index),
+    avoidColor: at(lib.colors, o.avoid_color_index),
+    song: musicLinks(at(lib.songs, o.song_index)),
+    drink: at(lib.drinks, o.drink_index),
+    food: at(lib.foods, o.food_index),
+    // Fall back to a vetted template if the model's action is not precise enough.
+    luckyAction: isPreciseAction(o.lucky_action) ? o.lucky_action : lib.actions[0],
+    gentleReminder: o.gentle_reminder,
+    dos: o.dos,
+    donts: o.donts,
+    ...(input.tier !== 'standard' && o.lucky_hour ? { luckyHour: o.lucky_hour } : {}),
+    ...(input.tier === 'deep' ? { reflections: o.reflections.slice(0, 3) } : {}),
+    disclaimer: DISCLAIMER,
+    aiGenerated: true,
+    generator,
+  };
+}
+
+// --- Claude ----------------------------------------------------------------
+
+const CONTENT_RULES = `Content rules:
+- This is light entertainment. Never promise outcomes ("you will get rich", "guaranteed"). Use hopeful, open language.
+- Never give investment, medical, or legal advice. If the question asks for it, answer the feelings behind it and suggest talking to a qualified professional.
+- No alcohol, gambling, or anything unsafe or illegal in any suggestion.
+- lucky_action: ONE concrete action the user can finish today. Name an exact object, number, place, or time so it can be checked. No vague words such as "try to", "a bit", "more often", "feel", "maybe". Model it on the examples in the library.
+- Only mention past conversations if they appear under "What the user told you before", and only quote them. Never invent anything the user did, said, or felt.
+- dos and donts: 2–3 short items each, specific to today.
+- Keep the answer to the user's question under 120 words for standard, 220 for detailed and deep.
+- lucky_hour: a one-hour window like "2–3 p.m." (return "" for standard).
+- reflections: three short questions for the deep tier; [] otherwise.
+- Write in warm, plain American English, in the deity's voice.`;
+
+function buildPrompt(input: GenerateInput) {
+  const l = input.library;
+  const list = (xs: string[]) => xs.map((x, i) => `  ${i}. ${x}`).join('\n');
+  const system = [
+    input.deity.persona_prompt,
+    'You give one-day fortune readings inside Fortune Muse, an entertainment app for adults in the US. Your output is rendered as a card, so return only the JSON object.',
+    CONTENT_RULES,
+  ].join('\n\n');
+
+  const memoryBlock = input.memories.length
+    ? `What the user told you before (their own words, newest first):\n${input.memories.map((m) => `- "${m}"`).join('\n')}`
+    : 'What the user told you before: nothing. Do not refer to any past conversation.';
+
+  const user = `Today is ${input.localDate}. Topic: ${input.topic}. Tier: ${input.tier}.
+
+Library to pick from (answer with the index):
+Outfits:
+${list(l.outfits.map((o) => `${o.color} ${o.style}`))}
+Shoes:
+${list(l.shoes.map((o) => `${o.color} ${o.style}`))}
+Colors (pick one to avoid today):
+${list(l.colors)}
+Songs:
+${list(l.songs.map((s) => `${s.title} — ${s.artist}`))}
+Drinks:
+${list(l.drinks)}
+Foods:
+${list(l.foods)}
+Example lucky actions (write a new one in this style, fitted to the question):
+${list(l.actions)}
+
+${memoryBlock}
+
+The user's question:
+<question>
+${input.question}
+</question>`;
+  return { system, user };
+}
+
+let client: Anthropic | null = null;
+
+async function generateWithClaude(input: GenerateInput): Promise<ReadingResult> {
+  client ??= new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
+  const { system, user } = buildPrompt(input);
+  const response = await client.beta.messages.create({
+    model: config.ANTHROPIC_MODEL,
+    max_tokens: 8000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    system,
+    messages: [{ role: 'user', content: user }],
+    output_config: { effort: config.ANTHROPIC_EFFORT, format: { type: 'json_schema', schema: OUTPUT_JSON_SCHEMA } },
+  });
+  if (response.stop_reason === 'refusal') throw new Error('model_refusal');
+  if (response.stop_reason === 'max_tokens') throw new Error('model_truncated');
+  const text = response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
+  const parsed = ModelOutput.parse(JSON.parse(text));
+  const problem = checkOutput(parsed);
+  if (problem) throw new Error(`content_check_failed:${problem}`);
+  return assemble(parsed, input, `claude:${response.model}`);
+}
+
+// --- Offline mock (no API key) ----------------------------------------------
+
+function generateMock(input: GenerateInput): ReadingResult {
+  const r = (n: number) => randomInt(Math.max(n, 1));
+  const love = input.topic === 'love';
+  const o: ModelOutput = {
+    direction: DIRECTIONS[r(DIRECTIONS.length)],
+    direction_note: love ? 'Sit facing this way when you send an important message.' : 'Face this way when you plan your day.',
+    answer: love
+      ? `The cards lean warm on this one. Small, honest gestures are favored today more than grand ones. Let your question — “${input.question.slice(0, 80)}” — guide one kind step, and notice how it is received.`
+      : `The ledger shows steady ground. Today rewards preparation over bold leaps. Write down what you want from “${input.question.slice(0, 80)}” and take one small, practical step toward it.`,
+    outfit_index: r(input.library.outfits.length),
+    shoes_index: r(input.library.shoes.length),
+    avoid_color_index: r(input.library.colors.length),
+    song_index: r(input.library.songs.length),
+    drink_index: r(input.library.drinks.length),
+    food_index: r(input.library.foods.length),
+    lucky_action: input.library.actions[0] ?? 'Before noon today, write one goal on a sticky note and put it on your laptop.',
+    gentle_reminder: 'Luck likes a rested mind. Drink some water and be kind to yourself today.',
+    dos: love ? ['Say thank you out loud once', 'Reply to one message warmly'] : ['Tidy one small workspace', 'Review one bill or receipt'],
+    donts: love ? ['Overthink a single text', 'Compare your story to others'] : ['Make an impulse purchase', 'Skip lunch'],
+    lucky_hour: '2–3 p.m.',
+    reflections: ['What would make today feel like a win?', 'Who could you thank this week?', 'What is one thing you can let go of?'],
+    deity_message: `${input.deity.name} smiles: a good day starts with one good step.`,
+  };
+  return assemble(o, input, 'mock');
+}
+
+export async function generateReading(input: GenerateInput): Promise<ReadingResult> {
+  if (!config.ANTHROPIC_API_KEY) return generateMock(input);
+  return generateWithClaude(input);
+}
+
+export const _test = { buildPrompt, checkOutput, generateMock };

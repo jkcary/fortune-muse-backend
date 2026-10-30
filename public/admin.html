@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fortune Muse Console</title>
+<style>
+  :root { --bg:#fbf7ef; --card:#fff; --ink:#2b2118; --muted:#7a6a58; --gold:#c8961e; --red:#b33a2b; --line:#eadfcb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:16px; padding:12px 20px; background:#2b2118; color:#fbe7b5; }
+  header b { font-size:16px; } nav { display:flex; gap:4px; flex-wrap:wrap; }
+  nav button { background:none; border:0; color:#fbe7b5; padding:6px 10px; border-radius:6px; cursor:pointer; }
+  nav button.on { background:#4a3a2a; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .kpi .v { font-size:24px; font-weight:700; } .kpi .t { color:var(--muted); font-size:12px; }
+  .ok { color:#2f7d4f; } .bad { color:var(--red); }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#f4ecdc; font-weight:600; font-size:12px; text-transform:uppercase; color:var(--muted); }
+  input, select, button.btn { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  button.btn { cursor:pointer; } button.primary { background:var(--gold); color:#fff; border-color:var(--gold); }
+  .row { display:flex; gap:8px; align-items:center; margin:0 0 12px; flex-wrap:wrap; }
+  #login { max-width:340px; margin:80px auto; } #login input { width:100%; margin-bottom:8px; }
+  h2 { margin:24px 0 12px; font-size:16px; } .muted { color:var(--muted); }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<div id="login" class="card" hidden>
+  <h2>Fortune Muse Console</h2>
+  <input id="em" type="email" placeholder="Admin email" />
+  <input id="pw" type="password" placeholder="Password" />
+  <button class="btn primary" onclick="login()">Sign in</button>
+  <p id="lerr" class="bad"></p>
+</div>
+<div id="app" hidden>
+  <header><b>💰 Fortune Muse Console</b>
+    <nav id="nav"></nav>
+    <span style="margin-left:auto"><button class="btn" onclick="logout()">Sign out</button></span>
+  </header>
+  <main id="view"></main>
+</div>
+<script>
+const API = location.origin;
+let token = localStorage.getItem('fm_admin') || '';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const money = (c) => '$' + (c / 100).toFixed(2);
+const when = (d) => d ? new Date(d).toLocaleString() : '';
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 401 || res.status === 403) { logout(); throw new Error('Not an admin'); }
+  if (!res.ok) { alert(body.message || 'Error'); throw new Error(body.message); }
+  return body;
+}
+
+async function login() {
+  const res = await fetch(API + '/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: $('#em').value, password: $('#pw').value }) });
+  const body = await res.json();
+  if (!res.ok) { $('#lerr').textContent = body.message; return; }
+  token = body.token; localStorage.setItem('fm_admin', token); boot();
+}
+function logout() { token = ''; localStorage.removeItem('fm_admin'); $('#app').hidden = true; $('#login').hidden = false; }
+
+const tabs = { Dashboard: dashboard, Reports: reports, Users: users, Orders: orders, Content: content, 'Draw pool': rewards, Privacy: privacy };
+let current = 'Dashboard';
+function nav() { $('#nav').innerHTML = Object.keys(tabs).map((t) => `<button class="${t===current?'on':''}" onclick="go('${t}')">${t}</button>`).join(''); }
+function go(t) { current = t; nav(); tabs[t](); }
+
+async function dashboard() {
+  const s = await api('/admin/stats');
+  $('#view').innerHTML = `
+    <div class="grid">
+      <div class="card kpi"><div class="t">Users</div><div class="v">${s.totals.users}</div></div>
+      <div class="card kpi"><div class="t">Revenue</div><div class="v">${money(s.totals.revenueCents)}</div></div>
+      <div class="card kpi"><div class="t">Paying users</div><div class="v">${s.totals.payers}</div></div>
+      <div class="card kpi"><div class="t">Open reports</div><div class="v ${s.totals.openReports?'bad':''}">${s.totals.openReports}</div></div>
+    </div>
+    <h2>MVP success metrics</h2>
+    <div class="grid">${s.kpis.map((k) => `<div class="card kpi"><div class="t">${esc(k.label)}</div>
+      <div class="v ${k.value >= k.target ? 'ok' : 'bad'}">${k.value}%</div><div class="t">target ≥ ${k.target}%</div></div>`).join('')}</div>
+    <h2>Last 14 days</h2>
+    <div class="scroll"><table><tr><th>Day</th><th>Signups</th><th>Readings</th><th>Revenue</th></tr>
+    ${s.daily.map((d) => `<tr><td>${d.day.slice(0,10)}</td><td>${d.signups}</td><td>${d.readings}</td><td>${money(d.revenue)}</td></tr>`).join('')}</table></div>`;
+}
+
+async function reports(status = 'open') {
+  const { reports } = await api('/admin/reports?status=' + status);
+  $('#view').innerHTML = `<div class="row"><select onchange="reports(this.value)">${['open','actioned','dismissed'].map((s)=>`<option ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>
+  <div class="scroll"><table><tr><th>When</th><th>Reason</th><th>Reported user</th><th>Message</th><th>By</th><th>Action</th></tr>
+  ${reports.map((r) => `<tr><td>${when(r.created_at)}</td><td>${esc(r.reason)}<div class="muted">${esc(r.details)}</div></td>
+    <td>${esc(r.target_handle)} <span class="muted">(${esc(r.target_status)})</span></td><td>${esc(r.message_snapshot)}</td><td>${esc(r.reporter_handle)}</td>
+    <td>${r.status==='open' ? `<button class="btn" onclick="resolve('${r.id}','dismissed','none')">Dismiss</button>
+      <button class="btn" onclick="resolve('${r.id}','actioned','restrict')">Restrict</button>
+      <button class="btn" onclick="resolve('${r.id}','actioned','ban')">Ban</button>` : esc(r.resolution_note || r.status)}</td></tr>`).join('') || '<tr><td colspan=6 class="muted">Nothing here.</td></tr>'}</table></div>`;
+}
+async function resolve(id, status, userAction) {
+  const note = prompt('Note (optional)') ?? '';
+  await api('/admin/reports/' + id, { method:'PATCH', body: JSON.stringify({ status, userAction, note }) }); reports();
+}
+
+async function users(q = '') {
+  const { users } = await api('/admin/users?q=' + encodeURIComponent(q));
+  $('#view').innerHTML = `<div class="row"><input id="uq" placeholder="Search email or handle" value="${esc(q)}" /><button class="btn" onclick="users($('#uq').value)">Search</button></div>
+  <div class="scroll"><table><tr><th>Handle</th><th>Email</th><th>Status</th><th>Readings</th><th>Reports</th><th>Joined</th><th></th></tr>
+  ${users.map((u) => `<tr><td>${esc(u.handle)}</td><td>${esc(u.email)} ${u.email_verified?'':'<span class="muted">(unverified)</span>'}</td>
+    <td><select onchange="setStatus('${u.id}', this.value)">${['active','restricted','banned'].map((s)=>`<option ${s===u.status?'selected':''}>${s}</option>`).join('')}</select></td>
+    <td>${u.readings}</td><td>${u.reports_against}</td><td>${when(u.created_at)}</td>
+    <td><button class="btn" onclick="delUser('${u.id}','${esc(u.handle)}')">Delete</button></td></tr>`).join('')}</table></div>`;
+}
+async function setStatus(id, status) { await api('/admin/users/' + id, { method:'PATCH', body: JSON.stringify({ status }) }); }
+async function delUser(id, h) { if (confirm('Permanently delete ' + h + ' and all their data?')) { await api('/admin/users/' + id, { method:'DELETE' }); users(); } }
+
+async function orders(status = '') {
+  const { orders } = await api('/admin/orders?status=' + status);
+  $('#view').innerHTML = `<div class="row"><select onchange="orders(this.value)"><option value="">all</option>${['paid','refund_requested','refunded','pending','canceled'].map((s)=>`<option ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>
+  <div class="scroll"><table><tr><th>When</th><th>User</th><th>Amount</th><th>Provider</th><th>Status</th><th>Reason</th><th></th></tr>
+  ${orders.map((o) => `<tr><td>${when(o.created_at)}</td><td>${esc(o.handle || '(deleted)')}</td><td>${money(o.amount)}${o.tax?` + ${money(o.tax)} tax`:''}</td>
+    <td>${o.provider}</td><td>${o.status}</td><td>${esc(o.refund_reason)}</td>
+    <td>${['paid','refund_requested'].includes(o.status) && o.provider!=='voucher' ? `<button class="btn" onclick="refund('${o.id}')">Refund</button>` : ''}</td></tr>`).join('')}</table></div>`;
+}
+async function refund(id) { if (confirm('Refund this order?')) { await api('/admin/orders/' + id + '/refund', { method:'POST', body: JSON.stringify({ reason:'admin' }) }); orders(); } }
+
+const FIELDS = { song:['title','artist'], drink:['name'], food:['name'], action:['text'], outfit:['style','color'], shoes:['style','color'], color:['name'] };
+async function content(kind = 'song') {
+  const { items } = await api('/admin/content?kind=' + kind);
+  $('#view').innerHTML = `<div class="row"><select onchange="content(this.value)">${Object.keys(FIELDS).map((k)=>`<option ${k===kind?'selected':''}>${k}</option>`).join('')}</select>
+    ${FIELDS[kind].map((f) => `<input id="cf_${f}" placeholder="${f}" ${f==='text'?'style="min-width:420px"':''} />`).join('')}
+    <select id="ctopic"><option value="">any topic</option><option>wealth</option><option>love</option></select>
+    <button class="btn primary" onclick="addContent('${kind}')">Add</button></div>
+    ${kind==='action' ? '<p class="muted">Lucky actions: one concrete thing doable today, with an exact object, number, place or time. No vague words.</p>' : ''}
+    ${kind==='drink' ? '<p class="muted">No alcohol — the server rejects it.</p>' : ''}
+  <div class="scroll"><table><tr><th>Item</th><th>Topic</th><th>Active</th></tr>
+  ${items.map((i) => `<tr><td>${esc(Object.values(i.data).join(' — '))}</td><td>${i.topic || 'any'}</td>
+    <td><input type="checkbox" ${i.active?'checked':''} onchange="api('/admin/content/${i.id}',{method:'PATCH',body:JSON.stringify({active:this.checked})})" /></td></tr>`).join('')}</table></div>`;
+}
+async function addContent(kind) {
+  const data = Object.fromEntries(FIELDS[kind].map((f) => [f, $('#cf_' + f).value.trim()]));
+  if (Object.values(data).some((v) => !v)) return alert('Fill every field');
+  await api('/admin/content', { method:'POST', body: JSON.stringify({ kind, topic: $('#ctopic').value || null, data }) }); content(kind);
+}
+
+async function rewards() {
+  const { rewards } = await api('/admin/rewards');
+  const total = rewards.filter((r) => r.active).reduce((s, r) => s + r.weight, 0);
+  $('#view').innerHTML = `<p class="muted">Odds are published to users on the draw screen. Draws are free and never tied to spending.</p>
+  <div class="scroll"><table><tr><th>Reward</th><th>Type</th><th>Weight</th><th>Odds</th><th>Active</th></tr>
+  ${rewards.map((r) => `<tr><td>${esc(r.name)}<div class="muted">${esc(r.description)}</div></td><td>${r.type}</td>
+    <td><input type="number" min="0" value="${r.weight}" style="width:80px" onchange="api('/admin/rewards/${r.id}',{method:'PATCH',body:JSON.stringify({weight:+this.value})}).then(rewards)" /></td>
+    <td>${r.active && total ? (r.weight / total * 100).toFixed(1) + '%' : '—'}</td>
+    <td><input type="checkbox" ${r.active?'checked':''} onchange="api('/admin/rewards/${r.id}',{method:'PATCH',body:JSON.stringify({active:this.checked})}).then(rewards)" /></td></tr>`).join('')}</table></div>`;
+}
+
+async function privacy() {
+  const { requests } = await api('/admin/privacy-requests');
+  $('#view').innerHTML = `<p class="muted">US privacy rights requests. Respond within 45 days.</p>
+  <div class="scroll"><table><tr><th>When</th><th>Email</th><th>Type</th><th>Status</th><th></th></tr>
+  ${requests.map((r) => `<tr><td>${when(r.created_at)}</td><td>${esc(r.email)}</td><td>${r.type}</td><td>${r.status}</td>
+    <td>${r.status==='open' ? `<button class="btn" onclick="api('/admin/privacy-requests/${r.id}',{method:'PATCH'}).then(privacy)">Mark done</button>` : ''}</td></tr>`).join('') || '<tr><td colspan=5 class="muted">No requests.</td></tr>'}</table></div>`;
+}
+
+async function boot() {
+  if (!token) return logout();
+  try { await api('/admin/stats'); } catch { return; }
+  $('#login').hidden = true; $('#app').hidden = false; go(current);
+}
+boot();
+</script>
+</body>
+</html>
