@@ -4,6 +4,7 @@ import { many, one, pool } from '../../db/pool.js';
 import { requireUser } from '../../lib/auth.js';
 import { notFound } from '../../lib/errors.js';
 import { track } from '../../lib/events.js';
+import { asLang } from '../../lib/i18n.js';
 import { MOODS } from '../profile/avatar.js';
 import { buildGreeting, type MemoryRow } from './greeting.js';
 
@@ -59,6 +60,7 @@ export default async function memoryRoutes(app: FastifyInstance) {
     const deity = await one(pool, 'SELECT greeting FROM deities WHERE id=$1 AND active', [deityId]);
     if (!deity) throw notFound('Deity not found');
     const memory = me.memory_enabled ? await latestMemory(me.id) : null;
-    return buildGreeting({ deityGreeting: deity.greeting, memory, tz: me.timezone });
+    const u = await one<{ language: string }>(pool, 'SELECT language FROM users WHERE id=$1', [me.id]);
+    return buildGreeting({ deityGreeting: deity.greeting, memory, tz: me.timezone, lang: asLang(u?.language) });
   });
 }

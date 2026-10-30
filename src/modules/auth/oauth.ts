@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { config } from '../../config.js';
 import { one, pool } from '../../db/pool.js';
 import { badRequest, conflict, forbidden } from '../../lib/errors.js';
+import { Language } from '../../lib/i18n.js';
 import { track } from '../../lib/events.js';
 import { newOpaqueToken, sha256 } from '../../lib/security.js';
 import { createUser, sessionPayload, signupCountry } from './routes.js';
@@ -261,6 +262,7 @@ export default async function oauthRoutes(app: FastifyInstance) {
       acceptTerms: z.literal(true, { message: 'Please accept the Terms and Privacy Policy.' }).optional(),
       timezone: z.string().optional(),
       country: z.string().length(2).optional(),
+      language: Language.optional(),
     }).parse(req.body);
 
     const t = await one<{ provider: Provider; subject: string; email: string; email_verified: boolean }>(pool,
@@ -290,7 +292,7 @@ export default async function oauthRoutes(app: FastifyInstance) {
     } else {
       const user = await createUser({
         email: t.email, passwordHash: null, country: signupCountry(req, body.country), timezone: body.timezone,
-        emailVerified: t.email_verified,
+        emailVerified: t.email_verified, language: body.language,
         afterInsert: (c, id) => c.query('INSERT INTO oauth_identities(provider,subject,user_id,email) VALUES ($1,$2,$3,$4)', [t.provider, t.subject, id, t.email]).then(() => {}),
       });
       track(user.id, 'signup', { method: t.provider });

@@ -1,5 +1,6 @@
 import { many, one, pool, tx } from '../../db/pool.js';
 import { track } from '../../lib/events.js';
+import { asLang } from '../../lib/i18n.js';
 import { localDate } from '../../lib/time.js';
 import { getStripe } from '../payments/stripe.js';
 import { generateReading } from './generator.js';
@@ -12,7 +13,7 @@ export async function runGeneration(readingId: string, log: { error: (o: unknown
   if (!reading) return;
   const [deity, user] = await Promise.all([
     one(pool, 'SELECT name, persona_prompt FROM deities WHERE id=$1', [reading.deity_id]),
-    one(pool, 'SELECT memory_enabled, timezone FROM users WHERE id=$1', [reading.user_id]),
+    one(pool, 'SELECT memory_enabled, timezone, language FROM users WHERE id=$1', [reading.user_id]),
   ]);
   const memories = user?.memory_enabled
     ? (await many(pool, `SELECT content FROM memories WHERE user_id=$1 AND content <> '' ORDER BY created_at DESC LIMIT 3`, [reading.user_id])).map((m) => m.content)
@@ -23,7 +24,7 @@ export async function runGeneration(readingId: string, log: { error: (o: unknown
       const library = await sampleLibrary(reading.topic);
       const result = await generateReading({
         deity, topic: reading.topic, tier: reading.tier, question: reading.question, library, memories,
-        localDate: localDate(user?.timezone ?? 'America/New_York'),
+        localDate: localDate(user?.timezone ?? 'America/New_York'), language: asLang(user?.language),
       });
       await pool.query(`UPDATE readings SET status='ready', result_json=$2, attempts=$3 WHERE id=$1`, [readingId, result, attempt]);
       track(reading.user_id, 'reading_ready', { tier: reading.tier, generator: result.generator });

@@ -5,7 +5,7 @@ import { clusterQuestion } from '../src/modules/readings/catalog.js';
 import { moderateChat, screenQuestion } from '../src/modules/safety/safety.js';
 
 const lib = { songs: [{ title: 'Lovely Day', artist: 'Bill Withers' }], drinks: ['Matcha latte'], foods: ['Dumplings'], outfits: [{ style: 'Blazer', color: 'navy' }], shoes: [{ style: 'Loafers', color: 'brown' }], colors: ['olive'], actions: ['Before noon today, write one goal on a sticky note.'] };
-const base = { deity: { name: 'Master Bao', persona_prompt: 'You are Master Bao.' }, topic: 'wealth' as const, tier: 'standard' as const, question: 'Raise?', library: lib, localDate: '2026-10-30' };
+const base = { deity: { name: 'Master Bao', persona_prompt: 'You are Master Bao.' }, topic: 'wealth' as const, tier: 'standard' as const, question: 'Raise?', library: lib, localDate: '2026-10-30', language: 'en-US' as const };
 
 describe('prompt', () => {
   it('tells the model there is no past when memory is empty', () => {
@@ -15,6 +15,25 @@ describe('prompt', () => {
   it('includes only the user’s own words as memory', () => {
     const { user } = _test.buildPrompt({ ...base, memories: ['I got the job!'] });
     expect(user).toContain('- "I got the job!"');
+  });
+});
+
+describe('language', () => {
+  it('asks the model to write in the user’s language', () => {
+    expect(_test.buildPrompt({ ...base, memories: [], language: 'zh-Hans' }).system).toContain('Simplified Chinese');
+    expect(_test.buildPrompt({ ...base, memories: [], language: 'zh-Hant' }).system).toContain('Traditional Chinese');
+    expect(_test.buildPrompt({ ...base, memories: [], language: 'en-GB' }).system).toContain('British English');
+    expect(_test.buildPrompt({ ...base, memories: [] }).system).toContain('American English');
+  });
+  it('checks Chinese lucky actions for a time today and no vague words', () => {
+    expect(isPreciseAction('今天下午三点前，把桌面上最旧的文件夹改成三个字的名字。', 'zh-Hans')).toBe(true);
+    expect(isPreciseAction('试着多一些积极的想法。', 'zh-Hans')).toBe(false);
+  });
+  it('writes the memory greeting in the user’s language', () => {
+    const now = new Date('2026-10-30T12:00:00Z');
+    const memory = { content: '我拿到工作了！', mood_tag: 'happy', created_at: new Date('2026-10-29T12:00:00Z') };
+    expect(buildGreeting({ deityGreeting: 'Hello!', memory, tz: 'UTC', now, lang: 'zh-Hans' }).text).toBe('昨天你跟我说：“我拿到工作了！”希望那份好心情还在。来，我们抽一支新签吧。');
+    expect(buildGreeting({ deityGreeting: 'Hello!', memory, tz: 'UTC', now, lang: 'zh-Hant' }).text).toContain('你跟我說：「我拿到工作了！」');
   });
 });
 

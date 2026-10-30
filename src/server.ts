@@ -32,6 +32,8 @@ export async function buildServer() {
   });
 
   await app.register(cors, {
+    // @fastify/cors 11 allows only GET/HEAD/POST by default; the app also PATCHes and DELETEs.
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE'],
     origin: (origin, cb) => cb(null, !origin || config.corsOrigins.includes(origin) || config.NODE_ENV === 'development'),
   });
   await app.register(rateLimit, { max: 300, timeWindow: '1 minute', allowList: () => config.NODE_ENV === 'test' });

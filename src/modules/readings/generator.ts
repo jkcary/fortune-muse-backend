@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '../../config.js';
+import { isChinese, type Lang } from '../../lib/i18n.js';
 import { makesGuarantee, mentionsAlcohol, screenQuestion } from '../safety/safety.js';
 import { DIRECTIONS, type Tier, type Topic } from './catalog.js';
 import { musicLinks, type Library } from './library.js';
@@ -85,14 +86,23 @@ export interface GenerateInput {
   /** User's own feedback text, newest first. Empty when memory is off. */
   memories: string[];
   localDate: string;
+  /** The user's app language; the reading text is written in it. */
+  language: Lang;
 }
 
 // --- Content rules (Appendix A) --------------------------------------------
 
 const VAGUE = /\b(try to|try and|a bit|a little more|more often|as much as|feel the|feel your|somehow|maybe|perhaps|if possible|when you can|sometime)\b/i;
 
+const VAGUE_ZH = /试着|試著|尝试|嘗試|一点点|一點點|多一些|也许|也許|或许|或許|尽量|盡量|有空的时候|有空的時候|感受/;
+
 /** A lucky action must be one concrete, verifiable action doable today. */
-export function isPreciseAction(s: string): boolean {
+export function isPreciseAction(s: string, lang: Lang = 'en-US'): boolean {
+  if (isChinese(lang)) {
+    if (VAGUE_ZH.test(s)) return false;
+    if (!/今天|今日|今晚|之前|以前|前/.test(s)) return false;
+    return s.length <= 120;
+  }
   if (VAGUE.test(s)) return false;
   if (!/\b(today|tonight|before|by)\b/i.test(s)) return false;
   return s.length <= 260;
@@ -121,7 +131,7 @@ function assemble(o: ModelOutput, input: GenerateInput, generator: string): Read
     drink: at(lib.drinks, o.drink_index),
     food: at(lib.foods, o.food_index),
     // Fall back to a vetted template if the model's action is not precise enough.
-    luckyAction: isPreciseAction(o.lucky_action) ? o.lucky_action : lib.actions[0],
+    luckyAction: isPreciseAction(o.lucky_action, input.language) ? o.lucky_action : lib.actions[0],
     gentleReminder: o.gentle_reminder,
     dos: o.dos,
     donts: o.donts,
@@ -144,8 +154,19 @@ const CONTENT_RULES = `Content rules:
 - dos and donts: 2–3 short items each, specific to today.
 - Keep the answer to the user's question under 120 words for standard, 220 for detailed and deep.
 - lucky_hour: a one-hour window like "2–3 p.m." (return "" for standard).
-- reflections: three short questions for the deep tier; [] otherwise.
-- Write in warm, plain American English, in the deity's voice.`;
+- reflections: three short questions for the deep tier; [] otherwise.`;
+
+/** How the free-text fields are written. Library picks are indexes; the app translates those itself. */
+export const LANGUAGE_RULE: Record<Lang, string> = {
+  'en-US': "Write every text field in warm, plain American English, in the deity's voice.",
+  'en-GB': "Write every text field in warm, plain British English (British spelling such as \"colour\" and \"favourite\"), in the deity's voice.",
+  'zh-Hans': 'Write every text field (deity_message, answer, direction_note, lucky_action, gentle_reminder, dos, donts, lucky_hour, reflections) ' +
+    "in natural Simplified Chinese (简体中文), warm and plain, in the deity's voice. Keep \"direction\" as one of its English enum values. " +
+    'lucky_action must say when today it is done, for example "今天下午三点前".',
+  'zh-Hant': 'Write every text field (deity_message, answer, direction_note, lucky_action, gentle_reminder, dos, donts, lucky_hour, reflections) ' +
+    "in natural Traditional Chinese (繁體中文, Taiwan usage), warm and plain, in the deity's voice. Keep \"direction\" as one of its English enum values. " +
+    'lucky_action must say when today it is done, for example "今天下午三點前".',
+};
 
 function buildPrompt(input: GenerateInput) {
   const l = input.library;
@@ -154,6 +175,7 @@ function buildPrompt(input: GenerateInput) {
     input.deity.persona_prompt,
     'You give one-day fortune readings inside Fortune Muse, an entertainment app for adults in the US. Your output is rendered as a card, so return only the JSON object.',
     CONTENT_RULES,
+    LANGUAGE_RULE[input.language],
   ].join('\n\n');
 
   const memoryBlock = input.memories.length

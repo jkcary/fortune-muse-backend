@@ -90,6 +90,29 @@ describe('sign in with Google / Microsoft / Apple', () => {
   });
 });
 
+describe('language', () => {
+  it('accepts only the four app languages and stores the choice', async () => {
+    const u = await newUser(app);
+    expect((await app.inject({ method: 'GET', url: '/me', headers: u.auth })).json().language).toBe('en-US');
+    expect((await app.inject({ method: 'PATCH', url: '/me', headers: u.auth, payload: { language: 'fr-FR' } })).statusCode).toBe(400);
+    for (const language of ['zh-Hans', 'zh-Hant', 'en-GB', 'en-US']) {
+      expect((await app.inject({ method: 'PATCH', url: '/me', headers: u.auth, payload: { language } })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/me', headers: u.auth })).json().language).toBe(language);
+    }
+  });
+
+  it('lets browsers PATCH and DELETE (CORS preflight)', async () => {
+    const res = await app.inject({ method: 'OPTIONS', url: '/me', headers: { origin: 'http://localhost:8081', 'access-control-request-method': 'PATCH' } });
+    expect(String(res.headers['access-control-allow-methods'])).toMatch(/PATCH.*DELETE|DELETE.*PATCH/);
+  });
+
+  it('takes the device language at signup', async () => {
+    const res = await app.inject({ method: 'POST', url: '/auth/register', payload: { email: 'zh@test.dev', password: 'password123', ageConfirmed: true, acceptTerms: true, language: 'zh-Hant' } });
+    const me = (await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${res.json().token}` } })).json();
+    expect(me.language).toBe('zh-Hant');
+  });
+});
+
 describe('super accounts', () => {
   const reading = (auth: Record<string, string>) => app.inject({ method: 'POST', url: '/readings', headers: auth,
     payload: { deityId: 'master-bao', topic: 'wealth', tier: 'deep', question: 'Will my side project take off?', digitalContentConsent: true } });

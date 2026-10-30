@@ -7,9 +7,10 @@ import { requireUser } from '../../lib/auth.js';
 import { badRequest, conflict, forbidden, unauthorized } from '../../lib/errors.js';
 import { track } from '../../lib/events.js';
 import { randomHandle } from '../../lib/handle.js';
+import { Language, type Lang } from '../../lib/i18n.js';
 import { sendMail } from '../../lib/mailer.js';
-import { applyAdminRole } from '../../lib/super.js';
 import { checkPassword, hashPassword, newOpaqueToken, sha256, signAccessToken } from '../../lib/security.js';
+import { applyAdminRole } from '../../lib/super.js';
 import { isValidTimeZone } from '../../lib/time.js';
 import { randomAvatar } from '../profile/avatar.js';
 
@@ -62,7 +63,7 @@ export function signupCountry(req: FastifyRequest, claimed?: string): string {
 
 /** Creates the user with a handle, an avatar and the signup consents. Used by email signup and OAuth. */
 export async function createUser(opts: {
-  email: string; passwordHash: string | null; country: string; timezone?: string; emailVerified?: boolean;
+  email: string; passwordHash: string | null; country: string; timezone?: string; emailVerified?: boolean; language?: Lang;
   afterInsert?: (c: PoolClient, userId: string) => Promise<void>;
 }): Promise<{ id: string; email: string; handle: string }> {
   const tz = opts.timezone && isValidTimeZone(opts.timezone) ? opts.timezone : 'America/New_York';
@@ -70,9 +71,9 @@ export async function createUser(opts: {
     let handle = randomHandle();
     for (let i = 0; i < 5 && (await one(c, 'SELECT 1 FROM users WHERE handle=$1', [handle])); i++) handle = randomHandle();
     const u = await one(c,
-      `INSERT INTO users(email,password_hash,email_verified,handle,role,country,timezone,age_confirmed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,now()) RETURNING id, email, handle`,
-      [opts.email, opts.passwordHash, opts.emailVerified ?? false, handle, 'user', opts.country, tz]);
+      `INSERT INTO users(email,password_hash,email_verified,handle,role,country,timezone,language,age_confirmed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING id, email, handle`,
+      [opts.email, opts.passwordHash, opts.emailVerified ?? false, handle, 'user', opts.country, tz, opts.language ?? 'en-US']);
     const av = randomAvatar();
     await c.query('INSERT INTO avatars(user_id,base_id,customization_json) VALUES ($1,$2,$3)', [u.id, av.base_id, av.customization]);
     for (const type of ['terms', 'privacy', 'age_18']) {
@@ -100,13 +101,14 @@ export default async function authRoutes(app: FastifyInstance) {
       acceptTerms: z.literal(true, { message: 'Please accept the Terms and Privacy Policy.' }),
       timezone: z.string().optional(),
       country: z.string().length(2).optional(),
+      language: Language.optional(),
     }).parse(req.body);
 
     const country = signupCountry(req, body.country);
     if (await one(pool, 'SELECT 1 FROM users WHERE email=$1', [body.email])) {
       throw conflict('email_taken', 'An account with this email already exists.');
     }
-    const user = await createUser({ email: body.email, passwordHash: await hashPassword(body.password), country, timezone: body.timezone });
+    const user = await createUser({ email: body.email, passwordHash: await hashPassword(body.password), country, timezone: body.timezone, language: body.language });
 
     await sendVerification(user.id, user.email);
     track(user.id, 'signup');

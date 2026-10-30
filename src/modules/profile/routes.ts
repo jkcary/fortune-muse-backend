@@ -4,6 +4,7 @@ import { many, one, pool } from '../../db/pool.js';
 import { requireUser } from '../../lib/auth.js';
 import { badRequest } from '../../lib/errors.js';
 import { track } from '../../lib/events.js';
+import { Language } from '../../lib/i18n.js';
 import { isSuper } from '../../lib/super.js';
 import { isValidTimeZone } from '../../lib/time.js';
 import { AVATAR_OPTIONS, MOODS, UNLOCKABLE_ACCESSORIES, UNLOCKABLE_BACKGROUNDS } from './avatar.js';
@@ -35,7 +36,7 @@ export default async function profileRoutes(app: FastifyInstance) {
   app.patch('/me', async (req) => {
     const me = await requireUser(req);
     const body = z.object({
-      language: z.enum(['en']).optional(),
+      language: Language.optional(),
       gender: z.enum(['female', 'male', 'nonbinary', 'prefer_not']).nullable().optional(),
       ageRange: z.enum(['18-24', '25-34', '35-44', '45-54', '55+']).nullable().optional(),
       timezone: z.string().refine(isValidTimeZone, 'Unknown time zone').optional(),
