@@ -34,6 +34,7 @@
   <input id="em" type="email" placeholder="Admin email" />
   <input id="pw" type="password" placeholder="Password" />
   <button class="btn primary" onclick="login()">Sign in</button>
+  <div id="sso" style="margin-top:12px"></div>
   <p id="lerr" class="bad"></p>
 </div>
 <div id="app" hidden>
@@ -64,6 +65,25 @@ async function login() {
   const body = await res.json();
   if (!res.ok) { $('#lerr').textContent = body.message; return; }
   token = body.token; localStorage.setItem('fm_admin', token); boot();
+}
+// Google / Microsoft / Apple sign-in: the API sends us back here with ?ticket=… (see modules/auth/oauth.ts).
+async function ssoButtons() {
+  const { providers } = await fetch(API + '/auth/oauth/providers').then((r) => r.json()).catch(() => ({ providers: [] }));
+  const back = encodeURIComponent(location.origin + location.pathname);
+  const label = { google: 'Google', microsoft: 'Microsoft', apple: 'Apple' };
+  $('#sso').innerHTML = providers.map((p) =>
+    `<a class="btn" style="display:block;text-align:center;margin-bottom:6px;text-decoration:none" href="/auth/oauth/${p.id}/start?redirect=${back}">Sign in with ${label[p.id]}</a>`).join('');
+}
+async function ssoReturn() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('ticket') && !q.has('error')) return;
+  history.replaceState(null, '', location.pathname);
+  if (q.get('error')) { $('#lerr').textContent = 'Sign-in was cancelled or failed.'; return; }
+  const res = await fetch(API + '/auth/oauth/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ticket: q.get('ticket') }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { $('#lerr').textContent = body.message || 'Sign-in failed.'; return; }
+  if (!body.token) { $('#lerr').textContent = 'No Fortune Muse account for ' + body.email + ' yet. Create it in the app first, then sign in here.'; return; }
+  token = body.token; localStorage.setItem('fm_admin', token);
 }
 function logout() { token = ''; localStorage.removeItem('fm_admin'); $('#app').hidden = true; $('#login').hidden = false; }
 
@@ -122,7 +142,7 @@ async function orders(status = '') {
   <div class="scroll"><table><tr><th>When</th><th>User</th><th>Amount</th><th>Provider</th><th>Status</th><th>Reason</th><th></th></tr>
   ${orders.map((o) => `<tr><td>${when(o.created_at)}</td><td>${esc(o.handle || '(deleted)')}</td><td>${money(o.amount)}${o.tax?` + ${money(o.tax)} tax`:''}</td>
     <td>${o.provider}</td><td>${o.status}</td><td>${esc(o.refund_reason)}</td>
-    <td>${['paid','refund_requested'].includes(o.status) && o.provider!=='voucher' ? `<button class="btn" onclick="refund('${o.id}')">Refund</button>` : ''}</td></tr>`).join('')}</table></div>`;
+    <td>${['paid','refund_requested'].includes(o.status) && !['voucher','comp'].includes(o.provider) ? `<button class="btn" onclick="refund('${o.id}')">Refund</button>` : ''}</td></tr>`).join('')}</table></div>`;
 }
 async function refund(id) { if (confirm('Refund this order?')) { await api('/admin/orders/' + id + '/refund', { method:'POST', body: JSON.stringify({ reason:'admin' }) }); orders(); } }
 
@@ -169,7 +189,8 @@ async function boot() {
   try { await api('/admin/stats'); } catch { return; }
   $('#login').hidden = true; $('#app').hidden = false; go(current);
 }
-boot();
+ssoButtons();
+ssoReturn().then(boot);
 </script>
 </body>
 </html>

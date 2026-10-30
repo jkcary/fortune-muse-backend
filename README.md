@@ -38,6 +38,10 @@ test/                  vitest: API end-to-end + generator/safety units
 
 Database: `docker compose up -d` starts PostgreSQL with the default `.env` credentials and creates the test database.
 
+Admin accounts: list emails in `SUPER_EMAILS` (admin console + free readings) or `ADMIN_EMAILS` (console only) in `.env`. Both stay ordinary accounts until the email is verified (verification link, magic link, or Google / Microsoft / Apple sign-in). Keep real addresses in `.env` only; it is not committed.
+
+Sign in with Google / Microsoft / Apple: fill the `GOOGLE_*`, `MICROSOFT_*` and `APPLE_*` keys in `.env` and register `{API_URL}/auth/oauth/{google|microsoft|apple}/callback` with each provider. Without keys, development uses a local test page instead.
+
 ## AI generation
 
 `modules/readings/generator.ts` calls Claude (`ANTHROPIC_MODEL`, default `claude-opus-5-5`, effort `ANTHROPIC_EFFORT=low`) with structured JSON output and server-side refusal fallback. The model picks from a random slice of the content library and writes the answer, lucky action and reminders. Output is schema-checked and screened for guarantees, alcohol and unsafe content; a vague lucky action is replaced by a vetted template; two failures refund the order. Memories enter the prompt only as the user's own quoted words, and the "no memory" case explicitly forbids referring to the past.

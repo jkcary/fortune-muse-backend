@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { config } from '../../config.js';
 import { one, pool, tx } from '../../db/pool.js';
@@ -7,6 +8,7 @@ import { badRequest, conflict, forbidden, unauthorized } from '../../lib/errors.
 import { track } from '../../lib/events.js';
 import { randomHandle } from '../../lib/handle.js';
 import { sendMail } from '../../lib/mailer.js';
+import { applyAdminRole } from '../../lib/super.js';
 import { checkPassword, hashPassword, newOpaqueToken, sha256, signAccessToken } from '../../lib/security.js';
 import { isValidTimeZone } from '../../lib/time.js';
 import { randomAvatar } from '../profile/avatar.js';
@@ -49,7 +51,40 @@ async function sendVerification(userId: string, email: string) {
   });
 }
 
+/** Launch-region gate for new accounts. */
+export function signupCountry(req: FastifyRequest, claimed?: string): string {
+  const country = geoCountry(req) ?? claimed?.toUpperCase() ?? 'US';
+  if (!config.launchCountries.includes(country)) {
+    throw forbidden('region_unavailable', 'Fortune Muse is not available in your region yet.');
+  }
+  return country;
+}
+
+/** Creates the user with a handle, an avatar and the signup consents. Used by email signup and OAuth. */
+export async function createUser(opts: {
+  email: string; passwordHash: string | null; country: string; timezone?: string; emailVerified?: boolean;
+  afterInsert?: (c: PoolClient, userId: string) => Promise<void>;
+}): Promise<{ id: string; email: string; handle: string }> {
+  const tz = opts.timezone && isValidTimeZone(opts.timezone) ? opts.timezone : 'America/New_York';
+  return tx(async (c) => {
+    let handle = randomHandle();
+    for (let i = 0; i < 5 && (await one(c, 'SELECT 1 FROM users WHERE handle=$1', [handle])); i++) handle = randomHandle();
+    const u = await one(c,
+      `INSERT INTO users(email,password_hash,email_verified,handle,role,country,timezone,age_confirmed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,now()) RETURNING id, email, handle`,
+      [opts.email, opts.passwordHash, opts.emailVerified ?? false, handle, 'user', opts.country, tz]);
+    const av = randomAvatar();
+    await c.query('INSERT INTO avatars(user_id,base_id,customization_json) VALUES ($1,$2,$3)', [u.id, av.base_id, av.customization]);
+    for (const type of ['terms', 'privacy', 'age_18']) {
+      await c.query('INSERT INTO consents(user_id,type,version) VALUES ($1,$2,$3)', [u.id, type, LEGAL_VERSION]);
+    }
+    await opts.afterInsert?.(c, u.id);
+    return u;
+  });
+}
+
 export async function sessionPayload(userId: string) {
+  await applyAdminRole(userId);
   const u = await one(pool, 'SELECT id, role FROM users WHERE id=$1', [userId]);
   return { token: signAccessToken({ sub: u.id, role: u.role }) };
 }
@@ -67,31 +102,11 @@ export default async function authRoutes(app: FastifyInstance) {
       country: z.string().length(2).optional(),
     }).parse(req.body);
 
-    const country = geoCountry(req) ?? body.country?.toUpperCase() ?? 'US';
-    if (!config.launchCountries.includes(country)) {
-      throw forbidden('region_unavailable', 'Fortune Muse is not available in your region yet.');
-    }
+    const country = signupCountry(req, body.country);
     if (await one(pool, 'SELECT 1 FROM users WHERE email=$1', [body.email])) {
       throw conflict('email_taken', 'An account with this email already exists.');
     }
-    const tz = body.timezone && isValidTimeZone(body.timezone) ? body.timezone : 'America/New_York';
-    const role = config.adminEmails.includes(body.email) ? 'admin' : 'user';
-    const passwordHash = await hashPassword(body.password);
-
-    const user = await tx(async (c) => {
-      let handle = randomHandle();
-      for (let i = 0; i < 5 && (await one(c, 'SELECT 1 FROM users WHERE handle=$1', [handle])); i++) handle = randomHandle();
-      const u = await one(c,
-        `INSERT INTO users(email,password_hash,handle,role,country,timezone,age_confirmed_at)
-         VALUES ($1,$2,$3,$4,$5,$6,now()) RETURNING id, email, handle`,
-        [body.email, passwordHash, handle, role, country, tz]);
-      const av = randomAvatar();
-      await c.query('INSERT INTO avatars(user_id,base_id,customization_json) VALUES ($1,$2,$3)', [u.id, av.base_id, av.customization]);
-      for (const type of ['terms', 'privacy', 'age_18']) {
-        await c.query('INSERT INTO consents(user_id,type,version) VALUES ($1,$2,$3)', [u.id, type, LEGAL_VERSION]);
-      }
-      return u;
-    });
+    const user = await createUser({ email: body.email, passwordHash: await hashPassword(body.password), country, timezone: body.timezone });
 
     await sendVerification(user.id, user.email);
     track(user.id, 'signup');
@@ -131,6 +146,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const { token } = z.object({ token: z.string() }).parse(req.body);
     const userId = await consumeToken(token, 'verify');
     await pool.query('UPDATE users SET email_verified=true WHERE id=$1', [userId]);
+    await applyAdminRole(userId);
     track(userId, 'email_verified');
     return { ok: true };
   });

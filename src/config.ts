@@ -26,7 +26,24 @@ const Env = z.object({
   POSTMARK_TOKEN: z.string().optional(),
   MAIL_FROM: z.string().default('Fortune Muse <hello@fortunemuse.app>'),
 
-  // Comma separated emails that get the admin role on registration.
+  // Sign in with Google / Microsoft / Apple. A provider without keys uses a local test page
+  // in development and is hidden in production. Redirect URI to register with each provider:
+  // {API_URL}/auth/oauth/{google|microsoft|apple}/callback
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  APPLE_CLIENT_ID: z.string().optional(), // the Services ID, e.g. app.fortunemuse.signin
+  APPLE_TEAM_ID: z.string().optional(),
+  APPLE_KEY_ID: z.string().optional(),
+  APPLE_PRIVATE_KEY: z.string().optional(), // contents of the .p8 file; \n escapes are fine
+
+  // Super accounts: admin console + free readings. Powers switch on only once the user has proven
+  // they own the address (verification link, magic link, or a provider-verified Google/Microsoft/Apple sign-in).
+  // Comma separated; set in .env only.
+  SUPER_EMAILS: z.string().default(''),
+
+  // Comma separated emails that get the admin role (console only, readings still paid) once the email is verified.
   ADMIN_EMAILS: z.string().default(''),
   // Launch markets. MVP: US only.
   LAUNCH_COUNTRIES: z.string().default('US'),
@@ -42,6 +59,7 @@ if (parsed.NODE_ENV === 'production') {
 export const config = {
   ...parsed,
   corsOrigins: parsed.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+  superEmails: parsed.SUPER_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   adminEmails: parsed.ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   launchCountries: parsed.LAUNCH_COUNTRIES.split(',').map((s) => s.trim().toUpperCase()),
   devPayments: !parsed.STRIPE_SECRET_KEY && parsed.NODE_ENV !== 'production',

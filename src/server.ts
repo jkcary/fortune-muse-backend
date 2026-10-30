@@ -12,6 +12,7 @@ import { HttpError } from './lib/errors.js';
 import { devOutbox } from './lib/mailer.js';
 import accountRoutes from './modules/account/routes.js';
 import adminRoutes from './modules/admin/routes.js';
+import oauthRoutes from './modules/auth/oauth.js';
 import authRoutes from './modules/auth/routes.js';
 import deityRoutes from './modules/deities/routes.js';
 import drawRoutes from './modules/draws/routes.js';
@@ -58,7 +59,7 @@ export async function buildServer() {
     app.get('/dev/outbox', async () => ({ mails: [...devOutbox].reverse() }));
   }
 
-  for (const routes of [authRoutes, profileRoutes, deityRoutes, readingRoutes, paymentRoutes, memoryRoutes, drawRoutes,
+  for (const routes of [authRoutes, oauthRoutes, profileRoutes, deityRoutes, readingRoutes, paymentRoutes, memoryRoutes, drawRoutes,
     roomRoutes, moderationRoutes, accountRoutes, adminRoutes]) {
     await app.register(routes);
   }

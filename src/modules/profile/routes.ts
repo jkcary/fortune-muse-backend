@@ -4,6 +4,7 @@ import { many, one, pool } from '../../db/pool.js';
 import { requireUser } from '../../lib/auth.js';
 import { badRequest } from '../../lib/errors.js';
 import { track } from '../../lib/events.js';
+import { isSuper } from '../../lib/super.js';
 import { isValidTimeZone } from '../../lib/time.js';
 import { AVATAR_OPTIONS, MOODS, UNLOCKABLE_ACCESSORIES, UNLOCKABLE_BACKGROUNDS } from './avatar.js';
 
@@ -18,6 +19,7 @@ export async function loadProfile(userId: string) {
      FROM inventory i JOIN rewards r ON r.id = i.reward_id WHERE i.user_id=$1 GROUP BY r.id`, [userId]);
   return {
     ...user,
+    super: isSuper(user),
     inventory: inv,
     freeReadings: inv.find((i) => i.type === 'free_reading')?.available ?? 0,
   };

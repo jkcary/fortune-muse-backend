@@ -5,6 +5,7 @@ import { many, one, pool, tx } from '../../db/pool.js';
 import { requireUser, requireVerified } from '../../lib/auth.js';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { track } from '../../lib/events.js';
+import { isSuper } from '../../lib/super.js';
 import { localDate } from '../../lib/time.js';
 import { LEGAL_VERSION } from '../auth/routes.js';
 import { getStripe } from '../payments/stripe.js';
@@ -42,6 +43,9 @@ export default async function readingRoutes(app: FastifyInstance) {
     if (!deity) throw badRequest('unknown_deity');
     if (body.useVoucher && body.tier !== 'standard') throw badRequest('voucher_tier', 'Vouchers cover a standard reading.');
 
+    // Super accounts read for free (recorded as a $0 'comp' order) and keep their vouchers.
+    const free = isSuper((await one(pool, 'SELECT email, email_verified FROM users WHERE id=$1', [me.id]))!);
+    if (free) body.useVoucher = false;
     const price = PRICES[body.tier].amount;
     const cluster = clusterQuestion(body.topic, body.question);
     const today = localDate(me.timezone);
@@ -57,16 +61,17 @@ export default async function readingRoutes(app: FastifyInstance) {
       }
       const order = await one(c,
         `INSERT INTO orders(user_id, provider, amount, status) VALUES ($1,$2,$3,$4) RETURNING *`,
-        [me.id, body.useVoucher ? 'voucher' : config.devPayments ? 'dev' : 'stripe', body.useVoucher ? 0 : price, body.useVoucher ? 'paid' : 'pending']);
+        [me.id, free ? 'comp' : body.useVoucher ? 'voucher' : config.devPayments ? 'dev' : 'stripe',
+          free || body.useVoucher ? 0 : price, free || body.useVoucher ? 'paid' : 'pending']);
       const reading = await one(c,
         `INSERT INTO readings(user_id, deity_id, topic, tier, question, topic_cluster, price, order_id, local_date)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [me.id, body.deityId, body.topic, body.tier, body.question, cluster.id, order.amount, order.id, today]);
       return { reading, order };
     });
-    track(me.id, 'reading_created', { tier: body.tier, voucher: body.useVoucher });
+    track(me.id, 'reading_created', { tier: body.tier, voucher: body.useVoucher, comp: free });
 
-    if (body.useVoucher) {
+    if (free || body.useVoucher) {
       void runGeneration(reading.id, req.log);
       return { reading: publicReading(reading), payment: { type: 'none' } };
     }
@@ -124,7 +129,7 @@ export default async function readingRoutes(app: FastifyInstance) {
     const { reason } = z.object({ reason: z.string().trim().min(3).max(500) }).parse(req.body);
     const o = await one(pool,
       `UPDATE orders SET status='refund_requested', refund_reason=$3, updated_at=now()
-       WHERE id=$1 AND user_id=$2 AND status='paid' AND provider <> 'voucher' RETURNING id, status`, [id, me.id, reason]);
+       WHERE id=$1 AND user_id=$2 AND status='paid' AND provider NOT IN ('voucher','comp') RETURNING id, status`, [id, me.id, reason]);
     if (!o) throw badRequest('not_refundable', 'This order cannot be refunded.');
     return o;
   });

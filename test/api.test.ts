@@ -40,6 +40,109 @@ describe('accounts (M1)', () => {
   });
 });
 
+describe('sign in with Google / Microsoft / Apple', () => {
+  /** Runs the dev stand-in flow and returns the ticket the app would receive. */
+  async function ticketFor(provider: string, email: string) {
+    const start = await app.inject({ method: 'GET', url: `/auth/oauth/${provider}/start?redirect=${encodeURIComponent('http://localhost:8081/oauth')}` });
+    expect(start.statusCode).toBe(302);
+    const cookie = String(start.headers['set-cookie']).split(';')[0];
+    const state = new URL(start.headers.location as string, 'http://x').searchParams.get('state')!;
+    const cb = await app.inject({ method: 'GET', url: `/auth/oauth/${provider}/callback?${new URLSearchParams({ state, dev_email: email })}`, headers: { cookie } });
+    const back = new URL(cb.headers.location as string);
+    expect(back.origin + back.pathname).toBe('http://localhost:8081/oauth');
+    return back.searchParams.get('ticket')!;
+  }
+
+  it('lists the providers', async () => {
+    const res = await app.inject({ method: 'GET', url: '/auth/oauth/providers' });
+    expect(res.json().providers.map((p: any) => p.id)).toEqual(['google', 'microsoft', 'apple']);
+  });
+
+  it('asks a new user for consent, then creates a verified account; tickets are single use', async () => {
+    const ticket = await ticketFor('google', 'Fresh@Gmail.com');
+    const first = await app.inject({ method: 'POST', url: '/auth/oauth/exchange', payload: { ticket } });
+    expect(first.json()).toMatchObject({ needsSignup: true, email: 'fresh@gmail.com' });
+    const second = await app.inject({ method: 'POST', url: '/auth/oauth/exchange', payload: { ticket, ageConfirmed: true, acceptTerms: true, timezone: 'America/Chicago' } });
+    const auth = { authorization: `Bearer ${second.json().token}` };
+    const me = (await app.inject({ method: 'GET', url: '/me', headers: auth })).json();
+    expect(me).toMatchObject({ email: 'fresh@gmail.com', email_verified: true, timezone: 'America/Chicago' });
+    expect(me.avatar.baseId).toBeTruthy();
+    expect((await app.inject({ method: 'POST', url: '/auth/oauth/exchange', payload: { ticket } })).json().error).toBe('invalid_ticket');
+    // Next time the same identity signs straight in.
+    const again = await app.inject({ method: 'POST', url: '/auth/oauth/exchange', payload: { ticket: await ticketFor('google', 'fresh@gmail.com') } });
+    expect(again.json().token).toBeTruthy();
+  });
+
+  it('links to an existing email account', async () => {
+    const u = await newUser(app, 'linked@icloud.com');
+    const res = await app.inject({ method: 'POST', url: '/auth/oauth/exchange', payload: { ticket: await ticketFor('apple', u.email) } });
+    const me = (await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${res.json().token}` } })).json();
+    expect(me.id).toBe(u.id);
+  });
+
+  it('rejects foreign redirects and callbacks from another browser', async () => {
+    const bad = await app.inject({ method: 'GET', url: `/auth/oauth/microsoft/start?redirect=${encodeURIComponent('https://evil.example/oauth')}` });
+    expect(bad.json().error).toBe('invalid_redirect');
+    const start = await app.inject({ method: 'GET', url: `/auth/oauth/microsoft/start?redirect=${encodeURIComponent('http://localhost:8081/oauth')}` });
+    const state = new URL(start.headers.location as string, 'http://x').searchParams.get('state')!;
+    const cb = await app.inject({ method: 'GET', url: `/auth/oauth/microsoft/callback?${new URLSearchParams({ state, dev_email: 'x@outlook.com' })}` });
+    expect(cb.json().error).toBe('invalid_state');
+  });
+});
+
+describe('super accounts', () => {
+  const reading = (auth: Record<string, string>) => app.inject({ method: 'POST', url: '/readings', headers: auth,
+    payload: { deityId: 'master-bao', topic: 'wealth', tier: 'deep', question: 'Will my side project take off?', digitalContentConsent: true } });
+
+  it('switch on only after the email is verified, then read for free and open the console', async () => {
+    const reg = await app.inject({ method: 'POST', url: '/auth/register', payload: { email: 'super@test.dev', password: 'password123', ageConfirmed: true, acceptTerms: true } });
+    const auth = { authorization: `Bearer ${reg.json().token}` };
+    // Typing the address is not enough.
+    expect((await app.inject({ method: 'GET', url: '/me', headers: auth })).json()).toMatchObject({ role: 'user', super: false });
+    expect((await app.inject({ method: 'GET', url: '/admin/stats', headers: auth })).statusCode).toBe(403);
+
+    const { devOutbox } = await import('../src/lib/mailer.js');
+    const token = devOutbox.filter((m) => m.to === 'super@test.dev').at(-1)!.text.match(/token=([\w-]+)/)![1];
+    await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { token } });
+    expect((await app.inject({ method: 'GET', url: '/me', headers: auth })).json()).toMatchObject({ role: 'admin', super: true });
+    expect((await app.inject({ method: 'GET', url: '/admin/stats', headers: auth })).statusCode).toBe(200);
+
+    const res = (await reading(auth)).json();
+    expect(res.payment.type).toBe('none');
+    expect(res.reading.price).toBe(0);
+    const order = (await pool.query('SELECT provider, amount, status FROM orders WHERE id=$1', [res.reading.orderId])).rows[0];
+    expect(order).toEqual({ provider: 'comp', amount: 0, status: 'paid' });
+    for (let i = 0; i < 50; i++) {
+      const r = (await app.inject({ method: 'GET', url: `/readings/${res.reading.id}`, headers: auth })).json().reading;
+      if (r.status === 'ready') return;
+      await new Promise((ok) => setTimeout(ok, 50));
+    }
+    throw new Error('free reading never became ready');
+  });
+
+  it('upgrades an existing verified account on its next sign-in', async () => {
+    const u = await newUser(app, 'super2@test.dev');
+    await pool.query("UPDATE users SET role='user' WHERE id=$1", [u.id]);
+    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: u.email, password: 'password123' } });
+    const me = (await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${login.json().token}` } })).json();
+    expect(me).toMatchObject({ role: 'admin', super: true });
+  });
+
+  it('ADMIN_EMAILS also waits for a verified email', async () => {
+    const reg = await app.inject({ method: 'POST', url: '/auth/register', payload: { email: 'admin2@test.dev', password: 'password123', ageConfirmed: true, acceptTerms: true } });
+    const auth = { authorization: `Bearer ${reg.json().token}` };
+    expect((await app.inject({ method: 'GET', url: '/me', headers: auth })).json()).toMatchObject({ role: 'user', super: false });
+    expect((await app.inject({ method: 'GET', url: '/admin/stats', headers: auth })).statusCode).toBe(403);
+    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin2@test.dev', password: 'password123' } });
+    expect((await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${login.json().token}` } })).json().role).toBe('user');
+  });
+
+  it('leaves other accounts paying', async () => {
+    const u = await newUser(app);
+    expect((await reading(u.auth)).json().payment.type).toBe('dev');
+  });
+});
+
 describe('readings (M3/M4/M8)', () => {
   it('delivers a complete result after payment', async () => {
     const u = await newUser(app);

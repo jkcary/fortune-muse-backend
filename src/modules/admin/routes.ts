@@ -13,8 +13,8 @@ export async function dashboardStats() {
   const n = async (sql: string) => (await one(pool, sql)).n as number;
   const users = await n('SELECT count(*)::int AS n FROM users');
   const withReading = await n(`SELECT count(DISTINCT user_id)::int AS n FROM readings WHERE status IN ('ready','generating')`);
-  const payers = await n(`SELECT count(DISTINCT user_id)::int AS n FROM orders WHERE status='paid' AND provider <> 'voucher'`);
-  const revenue = await n(`SELECT COALESCE(sum(amount),0)::int AS n FROM orders WHERE status='paid' AND provider <> 'voucher'`);
+  const payers = await n(`SELECT count(DISTINCT user_id)::int AS n FROM orders WHERE status='paid' AND provider NOT IN ('voucher','comp')`);
+  const revenue = await n(`SELECT COALESCE(sum(amount),0)::int AS n FROM orders WHERE status='paid' AND provider NOT IN ('voucher','comp')`);
   const memoryOn = await n('SELECT count(*)::int AS n FROM users WHERE memory_enabled');
   // Retention: active (any tracked event) on the day after / 7th day after signup, among users old enough.
   const retention = async (day: number) => one(pool, `
@@ -31,7 +31,7 @@ export async function dashboardStats() {
     SELECT d::date AS day,
       (SELECT count(*) FROM users WHERE created_at::date=d)::int AS signups,
       (SELECT count(*) FROM readings WHERE created_at::date=d AND status IN ('ready','generating'))::int AS readings,
-      (SELECT COALESCE(sum(amount),0) FROM orders WHERE created_at::date=d AND status='paid' AND provider <> 'voucher')::int AS revenue
+      (SELECT COALESCE(sum(amount),0) FROM orders WHERE created_at::date=d AND status='paid' AND provider NOT IN ('voucher','comp'))::int AS revenue
     FROM generate_series(current_date - 13, current_date, interval '1 day') d ORDER BY d`);
   return {
     totals: { users, revenueCents: revenue, payers, openReports: await n(`SELECT count(*)::int AS n FROM reports WHERE status='open'`) },
