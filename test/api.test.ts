@@ -203,8 +203,9 @@ describe('memory (M5)', () => {
     expect(plain.memoryRef).toBeNull();
 
     await app.inject({ method: 'POST', url: '/feedback', headers: u.auth, payload: { content: 'Feeling nervous about my interview', mood: 'low' } });
-    // Backdate the memory to yesterday so the greeting picks it up.
-    await pool.query(`UPDATE memories SET created_at = now() - interval '1 day' WHERE user_id=$1`, [u.id]);
+    // Backdate the memory to noon yesterday in the user's time zone (a plain "now - 1 day" fails on DST change days).
+    await pool.query(`UPDATE memories SET created_at = ((date_trunc('day', now() AT TIME ZONE u.timezone) - interval '12 hours') AT TIME ZONE u.timezone)
+      FROM users u WHERE u.id = memories.user_id AND memories.user_id=$1`, [u.id]);
     const g = (await app.inject({ method: 'GET', url: '/greeting?deityId=master-bao', headers: u.auth })).json();
     expect(g.text).toContain('Yesterday you told me: “Feeling nervous about my interview”');
 

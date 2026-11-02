@@ -26,7 +26,18 @@ export const Summary = z.object({
 export type Summary = z.infer<typeof Summary>;
 
 const ModelTurn = z.object({ reply: z.string().min(1).max(400), ready: z.boolean(), summary: Summary });
-export type IntakeReply = z.infer<typeof ModelTurn> & { generator: string };
+/** `canStart`: enough is known to draw the fortune; the app then lights up "Start the reading now". */
+export type IntakeReply = z.infer<typeof ModelTurn> & { canStart: boolean; generator: string };
+
+/** Answers before the reading can start, so the spirit always asks at least one follow-up. */
+export const MIN_ANSWERS = 2;
+
+/**
+ * Enough to draw: at least MIN_ANSWERS answers, and the core question plus the situation or the timeframe.
+ * Same rule for every model and the mock.
+ */
+export const canStartWith = (s: Summary, answers: number) =>
+  answers >= MIN_ANSWERS && Boolean(s.question.trim() && (s.context.trim() || s.timeframe.trim()));
 
 export const INTAKE_JSON_SCHEMA = {
   type: 'object',
@@ -56,6 +67,11 @@ export const INTAKE_LANGUAGE: Record<Lang, string> = {
   'zh-Hant': 'Write reply and summary in natural Traditional Chinese (繁體中文, Taiwan usage).',
 };
 
+/** The app's "Start the reading now" button as the user sees it, so the spirit names it exactly. */
+export const START_LABEL: Record<Lang, string> = {
+  'en-US': 'Start the reading now', 'en-GB': 'Start the reading now', 'zh-Hans': '现在开始抽签', 'zh-Hant': '現在開始抽籤',
+};
+
 const TOPIC_NAME: Record<Topic, string> = { wealth: 'wealth and money', love: 'love and relationships' };
 
 export function buildIntakeSystem(persona: string, topic: Topic, lang: Lang): string {
@@ -75,7 +91,7 @@ Rules:
 - Do not ask for anything they already told you. Skip what does not apply.
 - Never ask for names, contact details, addresses, birth dates, account numbers or other identifying or financial account details.
 - No predictions, no guarantees, no investment, medical or legal advice. If they ask for that, kindly say the reading is for fun and that a qualified professional can help with real decisions.
-- Set ready=true when you know the core question and enough context, after ${MAX_ANSWERS} answers from the user, or when the user asks to start. When ready, reply with one short line inviting them to choose their reading.
+- Set ready=true when you know the core question and enough context, after ${MAX_ANSWERS} answers from the user, or when the user asks to start. When ready, reply with one short line inviting them to tap the "${START_LABEL[lang]}" button (use exactly this name).
 - summary.question: the user's question as one sentence in their own terms (max ${USER_MAX} characters). summary.context, summary.timeframe, summary.goal: short notes taken only from what they said, or "" if unknown. Never invent details. While not ready, fill what you know so far.
 ${INTAKE_LANGUAGE[lang]}`;
 }
@@ -103,7 +119,7 @@ export const MOCK_SCRIPT: Record<Lang, { ask: [string, string, string]; ready: s
       'I see. When does this matter most: today, this week, or further out?',
       'And what would a good outcome look like for you?',
     ],
-    ready: 'I have what I need. Choose your reading and I will draw your fortune.',
+    ready: 'I have what I need. Tap "Start the reading now" and I will draw your fortune.',
   },
   'en-GB': {
     ask: [
@@ -111,15 +127,15 @@ export const MOCK_SCRIPT: Record<Lang, { ask: [string, string, string]; ready: s
       'I see. When does this matter most: today, this week, or further out?',
       'And what would a good outcome look like for you?',
     ],
-    ready: 'I have what I need. Choose your reading and I will draw your fortune.',
+    ready: 'I have what I need. Tap "Start the reading now" and I will draw your fortune.',
   },
   'zh-Hans': {
     ask: ['谢谢你告诉我。现在这件事的情况是怎样的？', '明白了。这件事什么时候最要紧：今天、这周，还是更久以后？', '那你心里最希望的结果是什么？'],
-    ready: '我都了解了。选好签的类型，我就为你抽签。',
+    ready: '我都了解了。点“现在开始抽签”，我就为你抽签。',
   },
   'zh-Hant': {
     ask: ['謝謝你告訴我。現在這件事的情況是怎樣的？', '明白了。這件事什麼時候最要緊：今天、這週，還是更久以後？', '那你心裡最希望的結果是什麼？'],
-    ready: '我都了解了。選好籤的類型，我就為你抽籤。',
+    ready: '我都了解了。點「現在開始抽籤」，我就為你抽籤。',
   },
 };
 
@@ -128,8 +144,10 @@ export function mockIntake(turns: Turn[], lang: Lang, start: boolean): IntakeRep
   const [question = '', context = '', timeframe = '', goal = ''] = answers;
   const summary = { question: question.slice(0, USER_MAX), context: context.slice(0, 400), timeframe: timeframe.slice(0, 120), goal: goal.slice(0, 240) };
   const script = MOCK_SCRIPT[lang];
-  const ready = start || answers.length > script.ask.length;
-  return { reply: ready ? script.ready : script.ask[answers.length - 1], ready, summary, generator: 'mock' };
+  const canStart = canStartWith(summary, answers.length);
+  // "Start now" counts only once enough is known; after the last scripted question the reading is ready anyway.
+  const ready = answers.length > script.ask.length || (start && canStart);
+  return { reply: ready ? script.ready : script.ask[answers.length - 1], ready, canStart: canStart || ready, summary, generator: 'mock' };
 }
 
 // --- Entry point -------------------------------------------------------------
@@ -161,7 +179,11 @@ export async function runIntake(opts: {
     // The first answer is always the core question; keep it if the model returned none.
     const first = opts.turns.find((t) => t.role === 'user')?.text ?? '';
     const question = (out.summary.question.trim() || first).slice(0, USER_MAX);
-    return { ...out, ready: out.ready || start, summary: { ...out.summary, question }, generator: `${res.provider}:${res.model}` };
+    const summary = { ...out.summary, question };
+    const canStart = canStartWith(summary, answers);
+    // The answer cap always ends the questions; otherwise "ready" needs enough information, whatever the model says.
+    const ready = answers >= MAX_ANSWERS || (canStart && (out.ready || start));
+    return { ...out, ready, canStart: canStart || ready, summary, generator: `${res.provider}:${res.model}` };
   } catch {
     // Keep the conversation going with the scripted question rather than failing the screen.
     return mockIntake(opts.turns, opts.lang, start);

@@ -40,6 +40,8 @@ describe('mock intake (no API key)', () => {
       turns.push({ role: 'user', text: a });
       const r = mockIntake(turns, 'en-US', false);
       expect(r.ready).toBe(i === 3);
+      // The question alone is not enough; with the situation too, the reading can start.
+      expect(r.canStart).toBe(i >= 1);
       turns.push({ role: 'assistant', text: r.reply });
     }
     expect(mockIntake(turns.slice(0, -1), 'en-US', false).summary).toEqual({ question: 'Should I ask for a raise?', context: 'My review is on Friday', timeframe: 'This week', goal: 'Five percent more' });
@@ -47,7 +49,10 @@ describe('mock intake (no API key)', () => {
   it('speaks every app language and can start early', () => {
     expect(mockIntake([{ role: 'user', text: '这周适合提加薪吗？' }], 'zh-Hans', false).reply).toContain('情况');
     expect(mockIntake([{ role: 'user', text: '這週適合提加薪嗎？' }], 'zh-Hant', false).reply).toContain('情況');
-    expect(mockIntake([{ role: 'user', text: 'Raise?' }], 'en-GB', true)).toMatchObject({ ready: true, summary: { question: 'Raise?' } });
+    // "Start now" is ignored until enough is known.
+    expect(mockIntake([{ role: 'user', text: 'Raise?' }], 'en-GB', true)).toMatchObject({ ready: false, canStart: false });
+    const two = [{ role: 'user' as const, text: 'Raise?' }, { role: 'assistant' as const, text: 'Tell me more.' }, { role: 'user' as const, text: 'Review is Friday' }];
+    expect(mockIntake(two, 'en-GB', true)).toMatchObject({ ready: true, canStart: true, summary: { question: 'Raise?', context: 'Review is Friday' } });
   });
 });
 
@@ -56,7 +61,9 @@ describe('POST /readings/intake', () => {
     const u = await newUser(app);
     const turns = [{ role: 'user', text: 'Is this a good week to ask for a raise?' }];
     const first = (await intake(u.auth, turns)).json();
-    expect(first).toMatchObject({ ready: false, summary: { question: 'Is this a good week to ask for a raise?' } });
+    expect(first).toMatchObject({ ready: false, canStart: false, summary: { question: 'Is this a good week to ask for a raise?' } });
+    // Asking to start this early does nothing.
+    expect((await intake(u.auth, turns, true)).json()).toMatchObject({ ready: false, canStart: false });
     turns.push({ role: 'assistant', text: first.reply }, { role: 'user', text: 'My review is on Friday' });
     const done = (await intake(u.auth, turns, true)).json();
     expect(done.ready).toBe(true);

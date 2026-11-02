@@ -47,7 +47,7 @@ export default async function readingRoutes(app: FastifyInstance) {
       return { safety: { kind: out.safety, ...HELP_RESOURCES[out.safety] } };
     }
     track(me.id, 'intake_turn', { answers: body.turns.filter((t) => t.role === 'user').length, ready: out.ready, generator: out.generator });
-    return { reply: out.reply, ready: out.ready, summary: out.summary };
+    return { reply: out.reply, ready: out.ready, canStart: out.canStart, summary: out.summary };
   });
 
   app.post('/readings', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {

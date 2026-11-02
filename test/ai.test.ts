@@ -96,6 +96,21 @@ describe('OpenAI-compatible providers', () => {
     expect(requests[0].body.messages[0].content).toContain('JSON Schema');
   });
 
+  it('lights up "Start" only after a follow-up, even if the model already knows enough', async () => {
+    await useCustom('intake');
+    reply = () => ({ status: 200, content: '{"reply":"Why this month?","ready":true,"summary":{"question":"Start my side project this month?","context":"","timeframe":"this month","goal":""}}' });
+    const u = await newUser(app);
+    expect((await intake(u.auth, 'Should I start my side project this month?')).json()).toMatchObject({ ready: false, canStart: false });
+    const two = await app.inject({ method: 'POST', url: '/readings/intake', headers: u.auth, payload: { deityId: 'master-bao', topic: 'wealth', turns: [
+      { role: 'user', text: 'Should I start my side project this month?' }, { role: 'assistant', text: 'Why this month?' }, { role: 'user', text: 'My contract ends' }] } });
+    expect(two.json()).toMatchObject({ ready: true, canStart: true });
+    // json_object providers get the conversation as one user message (DeepSeek returns empty replies otherwise).
+    const sent = requests.at(-1)!.body.messages;
+    expect(sent).toHaveLength(2);
+    expect(sent[1].content).toContain('User: My contract ends');
+    expect(sent[1].content).toContain('You: Why this month?');
+  });
+
   it('retries once on invalid JSON, then falls back to the scripted reply', async () => {
     await useCustom('intake');
     reply = () => ({ status: 200, content: 'Sure! Here is my answer without JSON.' });

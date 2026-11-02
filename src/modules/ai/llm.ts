@@ -60,6 +60,16 @@ async function callAnthropic(cfg: ResolvedConfig, req: JsonRequest<unknown>): Pr
   return { text: response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join(''), model: response.model };
 }
 
+/**
+ * In json_object mode some providers (DeepSeek, seen 2026-11) answer with empty content when earlier assistant
+ * turns are plain text. Sending the conversation as one user message avoids it.
+ */
+export function foldTranscript(messages: JsonRequest<unknown>['messages']): JsonRequest<unknown>['messages'] {
+  if (messages.length <= 1) return messages;
+  const lines = messages.map((m) => `${m.role === 'user' ? 'User' : 'You'}: ${m.content}`).join('\n\n');
+  return [{ role: 'user', content: `The conversation so far:\n\n${lines}\n\nAnswer the user's last message.` }];
+}
+
 /** OpenAI-compatible Chat Completions: OpenAI, DeepSeek, Gemini, Grok, Qwen, Kimi, OpenRouter, Ollama, vLLM, custom. */
 async function callOpenAiCompatible(cfg: ResolvedConfig, req: JsonRequest<unknown>): Promise<{ text: string; model: string }> {
   const info = providerInfo(cfg.provider);
@@ -69,7 +79,7 @@ async function callOpenAiCompatible(cfg: ResolvedConfig, req: JsonRequest<unknow
     : `${req.system}\n\nReturn only one JSON object that matches this JSON Schema, with no other text:\n${JSON.stringify(req.schema)}`;
   const body: Record<string, unknown> = {
     model: cfg.model,
-    messages: [{ role: 'system', content: system }, ...req.messages],
+    messages: [{ role: 'system', content: system }, ...(info.json === 'object' ? foldTranscript(req.messages) : req.messages)],
     // OpenAI's newer models only accept max_completion_tokens; the others use max_tokens.
     [cfg.provider === 'openai' ? 'max_completion_tokens' : 'max_tokens']: cfg.maxTokens ?? req.maxTokens,
     response_format: info.json === 'schema'
