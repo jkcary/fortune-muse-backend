@@ -9,6 +9,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "prompts:doc": "tsx src/scripts/prompts-doc.ts",
+    "admin:create": "tsx src/scripts/create-admin.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
