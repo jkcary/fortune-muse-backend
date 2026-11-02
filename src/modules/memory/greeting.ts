@@ -38,7 +38,7 @@ const EN: Templates = {
   freshFortune: 'Come, let us draw a fresh fortune.',
 };
 
-const TEMPLATES: Record<Lang, Templates> = {
+export const TEMPLATES: Record<Lang, Templates> = {
   'en-US': EN,
   'en-GB': { ...EN, locale: 'en-GB' },
   'zh-Hans': {

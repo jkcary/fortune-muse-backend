@@ -25,6 +25,7 @@ export async function runGeneration(readingId: string, log: { error: (o: unknown
       const result = await generateReading({
         deity, topic: reading.topic, tier: reading.tier, question: reading.question, library, memories,
         localDate: localDate(user?.timezone ?? 'America/New_York'), language: asLang(user?.language),
+        intake: reading.intake_json?.summary ?? null,
       });
       await pool.query(`UPDATE readings SET status='ready', result_json=$2, attempts=$3 WHERE id=$1`, [readingId, result, attempt]);
       track(reading.user_id, 'reading_ready', { tier: reading.tier, generator: result.generator });

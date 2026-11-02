@@ -6,20 +6,50 @@ import { requireUser, requireVerified } from '../../lib/auth.js';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { track } from '../../lib/events.js';
 import { isSuper } from '../../lib/super.js';
+import { asLang } from '../../lib/i18n.js';
 import { localDate } from '../../lib/time.js';
 import { LEGAL_VERSION } from '../auth/routes.js';
 import { getStripe } from '../payments/stripe.js';
 import { HELP_RESOURCES, screenQuestion } from '../safety/safety.js';
 import { clusterQuestion, PRICES } from './catalog.js';
+import { MAX_ANSWERS, runIntake, Summary, Turn, USER_MAX } from './intake.js';
 import { runGeneration } from './service.js';
 
 const publicReading = (r: any) => ({
   id: r.id, deityId: r.deity_id, topic: r.topic, tier: r.tier, question: r.question,
   status: r.status, price: r.price, orderId: r.order_id, createdAt: r.created_at,
   result: r.status === 'ready' ? r.result_json : null,
+  intake: r.intake_json ?? null,
 });
 
+/** A transcript that starts with the user and alternates; user turns stay within the question limit. */
+const Transcript = z.array(Turn).min(1).max(MAX_ANSWERS * 2 + 1).refine(
+  (ts) => ts.every((t, i) => t.role === (i % 2 === 0 ? 'user' : 'assistant') && (t.role === 'assistant' || t.text.length <= USER_MAX)),
+  { message: 'Invalid conversation.' },
+);
+
 export default async function readingRoutes(app: FastifyInstance) {
+  // The free conversation before a reading (see intake.ts). Only the reading itself is charged.
+  app.post('/readings/intake', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+    const me = await requireVerified(req);
+    const body = z.object({
+      deityId: z.string(),
+      topic: z.enum(['wealth', 'love']),
+      turns: Transcript,
+      start: z.boolean().default(false),
+    }).parse(req.body);
+    const deity = await one(pool, 'SELECT persona_prompt FROM deities WHERE id=$1 AND active', [body.deityId]);
+    if (!deity) throw badRequest('unknown_deity');
+    const u = await one<{ language: string }>(pool, 'SELECT language FROM users WHERE id=$1', [me.id]);
+    const out = await runIntake({ deity, topic: body.topic, lang: asLang(u?.language), turns: body.turns, start: body.start });
+    if ('safety' in out) {
+      track(me.id, 'safety_intercept', { kind: out.safety, stage: 'intake' });
+      return { safety: { kind: out.safety, ...HELP_RESOURCES[out.safety] } };
+    }
+    track(me.id, 'intake_turn', { answers: body.turns.filter((t) => t.role === 'user').length, ready: out.ready, generator: out.generator });
+    return { reply: out.reply, ready: out.ready, summary: out.summary };
+  });
+
   app.post('/readings', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
     const me = await requireVerified(req);
     const body = z.object({
@@ -27,13 +57,16 @@ export default async function readingRoutes(app: FastifyInstance) {
       topic: z.enum(['wealth', 'love']),
       tier: z.enum(['standard', 'detailed', 'deep']),
       question: z.string().trim().min(3).max(200),
+      // The conversation that led to this question, kept with the reading.
+      intake: z.object({ turns: Transcript, summary: Summary }).optional(),
       useVoucher: z.boolean().default(false),
       // Consent to immediate delivery of digital content (no refund once delivered, except failures).
       digitalContentConsent: z.literal(true, { message: 'Please confirm the digital content terms.' }),
     }).parse(req.body);
 
     // Sensitive topics get help resources instead of a reading, and no charge (plan §M3).
-    const verdict = screenQuestion(body.question);
+    const verdict = [body.question, ...(body.intake?.turns.filter((t) => t.role === 'user').map((t) => t.text) ?? [])]
+      .map(screenQuestion).find((v) => !v.ok) ?? { ok: true as const };
     if (!verdict.ok) {
       track(me.id, 'safety_intercept', { kind: verdict.kind });
       return { safety: { kind: verdict.kind, ...HELP_RESOURCES[verdict.kind] } };
@@ -64,9 +97,9 @@ export default async function readingRoutes(app: FastifyInstance) {
         [me.id, free ? 'comp' : body.useVoucher ? 'voucher' : config.devPayments ? 'dev' : 'stripe',
           free || body.useVoucher ? 0 : price, free || body.useVoucher ? 'paid' : 'pending']);
       const reading = await one(c,
-        `INSERT INTO readings(user_id, deity_id, topic, tier, question, topic_cluster, price, order_id, local_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [me.id, body.deityId, body.topic, body.tier, body.question, cluster.id, order.amount, order.id, today]);
+        `INSERT INTO readings(user_id, deity_id, topic, tier, question, topic_cluster, price, order_id, local_date, intake_json)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [me.id, body.deityId, body.topic, body.tier, body.question, cluster.id, order.amount, order.id, today, body.intake ?? null]);
       return { reading, order };
     });
     track(me.id, 'reading_created', { tier: body.tier, voucher: body.useVoucher, comp: free });

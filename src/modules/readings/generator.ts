@@ -1,10 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '../../config.js';
 import { isChinese, type Lang } from '../../lib/i18n.js';
 import { makesGuarantee, mentionsAlcohol, screenQuestion } from '../safety/safety.js';
 import { DIRECTIONS, type Tier, type Topic } from './catalog.js';
+import { claudeJson } from './claude.js';
 import { musicLinks, type Library } from './library.js';
 
 export const DISCLAIMER = 'For entertainment purposes only. Not financial, medical, or legal advice.';
@@ -88,6 +88,8 @@ export interface GenerateInput {
   localDate: string;
   /** The user's app language; the reading text is written in it. */
   language: Lang;
+  /** What the user told the deity in the conversation before the reading (see intake.ts). */
+  intake?: { context: string; timeframe: string; goal: string } | null;
 }
 
 // --- Content rules (Appendix A) --------------------------------------------
@@ -168,6 +170,13 @@ export const LANGUAGE_RULE: Record<Lang, string> = {
     'lucky_action must say when today it is done, for example "今天下午三點前".',
 };
 
+function intakeBlock(intake: GenerateInput['intake']): string {
+  const lines = intake ? ([['Situation', intake.context], ['Timeframe', intake.timeframe], ['Hoping for', intake.goal]] as const).filter(([, v]) => v.trim()) : [];
+  if (!lines.length) return 'What the user shared before the reading: nothing beyond the question.';
+  return `What the user shared before the reading (summarized from their own words):\n${lines.map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n` +
+    'Use this to make the answer, dos/donts and lucky action specific to them. Do not add details they did not give.';
+}
+
 function buildPrompt(input: GenerateInput) {
   const l = input.library;
   const list = (xs: string[]) => xs.map((x, i) => `  ${i}. ${x}`).join('\n');
@@ -202,6 +211,8 @@ ${list(l.actions)}
 
 ${memoryBlock}
 
+${intakeBlock(input.intake)}
+
 The user's question:
 <question>
 ${input.question}
@@ -209,27 +220,13 @@ ${input.question}
   return { system, user };
 }
 
-let client: Anthropic | null = null;
-
 async function generateWithClaude(input: GenerateInput): Promise<ReadingResult> {
-  client ??= new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
   const { system, user } = buildPrompt(input);
-  const response = await client.beta.messages.create({
-    model: config.ANTHROPIC_MODEL,
-    max_tokens: 8000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    system,
-    messages: [{ role: 'user', content: user }],
-    output_config: { effort: config.ANTHROPIC_EFFORT, format: { type: 'json_schema', schema: OUTPUT_JSON_SCHEMA } },
-  });
-  if (response.stop_reason === 'refusal') throw new Error('model_refusal');
-  if (response.stop_reason === 'max_tokens') throw new Error('model_truncated');
-  const text = response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
-  const parsed = ModelOutput.parse(JSON.parse(text));
+  const { data, model } = await claudeJson({ system, messages: [{ role: 'user', content: user }], schema: OUTPUT_JSON_SCHEMA, maxTokens: 8000 });
+  const parsed = ModelOutput.parse(data);
   const problem = checkOutput(parsed);
   if (problem) throw new Error(`content_check_failed:${problem}`);
-  return assemble(parsed, input, `claude:${response.model}`);
+  return assemble(parsed, input, `claude:${model}`);
 }
 
 // --- Offline mock (no API key) ----------------------------------------------
@@ -266,3 +263,5 @@ export async function generateReading(input: GenerateInput): Promise<ReadingResu
 }
 
 export const _test = { buildPrompt, checkOutput, generateMock };
+/** For docs/PROMPTS.md (npm run prompts:doc). */
+export const _prompts = { CONTENT_RULES, OUTPUT_JSON_SCHEMA, buildPrompt };
