@@ -1,9 +1,8 @@
 import { z } from 'zod';
-import { config } from '../../config.js';
 import type { Lang } from '../../lib/i18n.js';
 import { makesGuarantee, mentionsAlcohol, screenQuestion } from '../safety/safety.js';
 import type { Topic } from './catalog.js';
-import { claudeJson } from './claude.js';
+import { generateJson } from '../ai/llm.js';
 
 /**
  * The conversation before a reading: the deity asks a few short questions to understand
@@ -147,21 +146,22 @@ export async function runIntake(opts: {
   }
   const answers = opts.turns.filter((t) => t.role === 'user').length;
   const start = opts.start || answers >= MAX_ANSWERS;
-  if (!config.ANTHROPIC_API_KEY) return mockIntake(opts.turns, opts.lang, start);
 
   try {
-    const { data, model } = await claudeJson({
+    const res = await generateJson('intake', {
       system: buildIntakeSystem(opts.deity.persona_prompt, opts.topic, opts.lang),
       messages: buildIntakeMessages(opts.turns, start),
       schema: INTAKE_JSON_SCHEMA,
       maxTokens: 1500,
+      validate: (d) => ModelTurn.parse(d),
     });
-    const out = ModelTurn.parse(data);
+    if (!res) return mockIntake(opts.turns, opts.lang, start);
+    const out = res.data;
     if (makesGuarantee(out.reply) || mentionsAlcohol(out.reply) || !screenQuestion(out.reply).ok) throw new Error('content_check_failed');
     // The first answer is always the core question; keep it if the model returned none.
     const first = opts.turns.find((t) => t.role === 'user')?.text ?? '';
     const question = (out.summary.question.trim() || first).slice(0, USER_MAX);
-    return { ...out, ready: out.ready || start, summary: { ...out.summary, question }, generator: `claude:${model}` };
+    return { ...out, ready: out.ready || start, summary: { ...out.summary, question }, generator: `${res.provider}:${res.model}` };
   } catch {
     // Keep the conversation going with the scripted question rather than failing the screen.
     return mockIntake(opts.turns, opts.lang, start);

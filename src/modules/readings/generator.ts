@@ -1,10 +1,9 @@
 import { randomInt } from 'node:crypto';
 import { z } from 'zod';
-import { config } from '../../config.js';
 import { isChinese, type Lang } from '../../lib/i18n.js';
+import { generateJson } from '../ai/llm.js';
 import { makesGuarantee, mentionsAlcohol, screenQuestion } from '../safety/safety.js';
 import { DIRECTIONS, type Tier, type Topic } from './catalog.js';
-import { claudeJson } from './claude.js';
 import { musicLinks, type Library } from './library.js';
 
 export const DISCLAIMER = 'For entertainment purposes only. Not financial, medical, or legal advice.';
@@ -220,13 +219,16 @@ ${input.question}
   return { system, user };
 }
 
-async function generateWithClaude(input: GenerateInput): Promise<ReadingResult> {
+/** The reading from the model chosen in the admin console; null when that is the offline mock. */
+async function generateWithModel(input: GenerateInput): Promise<ReadingResult | null> {
   const { system, user } = buildPrompt(input);
-  const { data, model } = await claudeJson({ system, messages: [{ role: 'user', content: user }], schema: OUTPUT_JSON_SCHEMA, maxTokens: 8000 });
-  const parsed = ModelOutput.parse(data);
-  const problem = checkOutput(parsed);
+  const out = await generateJson('reading', {
+    system, messages: [{ role: 'user', content: user }], schema: OUTPUT_JSON_SCHEMA, maxTokens: 8000, validate: (d) => ModelOutput.parse(d),
+  });
+  if (!out) return null;
+  const problem = checkOutput(out.data);
   if (problem) throw new Error(`content_check_failed:${problem}`);
-  return assemble(parsed, input, `claude:${model}`);
+  return assemble(out.data, input, `${out.provider}:${out.model}`);
 }
 
 // --- Offline mock (no API key) ----------------------------------------------
@@ -258,8 +260,7 @@ function generateMock(input: GenerateInput): ReadingResult {
 }
 
 export async function generateReading(input: GenerateInput): Promise<ReadingResult> {
-  if (!config.ANTHROPIC_API_KEY) return generateMock(input);
-  return generateWithClaude(input);
+  return (await generateWithModel(input)) ?? generateMock(input);
 }
 
 export const _test = { buildPrompt, checkOutput, generateMock };

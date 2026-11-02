@@ -29,6 +29,12 @@
   #login .lang { justify-content:flex-end; margin-bottom:8px; }
   h2 { margin:24px 0 12px; font-size:16px; } .muted { color:var(--muted); }
   .scroll { overflow-x:auto; }
+  .ai { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; }
+  .ai label { display:block; font-size:12px; color:var(--muted); margin:8px 0 2px; }
+  .ai input, .ai select { width:100%; }
+  .pair { display:flex; gap:8px; } .pair > div { flex:1; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f4ecdc; font-size:12px; }
+  .result { margin-top:8px; font-size:13px; white-space:pre-wrap; word-break:break-word; }
 </style>
 </head>
 <body>
@@ -109,6 +115,30 @@ const ZH = [
   ['Odds are published to users on the draw screen. Draws are free and never tied to spending.', '中奖概率会在抽卡页面公开给用户。抽卡免费，与消费无关。', '中獎機率會在抽卡頁面公開給使用者。抽卡免費，與消費無關。'],
   ['Reward', '奖励', '獎勵'], ['Type', '类型', '類型'], ['Weight', '权重', '權重'], ['Odds', '概率', '機率'],
   ['free_reading', '免费求签券', '免費求籤券'], ['avatar_item', '头像装扮', '頭像裝扮'], ['deity_skin', '财神皮肤', '財神造型'], ['sticker', '贴纸', '貼紙'],
+  // AI models
+  ['AI models', 'AI 模型', 'AI 模型'],
+  ['Choose which AI writes the conversation before a reading and the reading itself. Changes apply within a few seconds; the offline mock needs no key.',
+    '选择由哪个 AI 负责求签前的对话和签文本身。保存后几秒内生效；离线模拟不需要密钥。',
+    '選擇由哪個 AI 負責求籤前的對話和籤文本身。儲存後幾秒內生效；離線模擬不需要金鑰。'],
+  ['Conversation before the reading', '求签前的对话', '求籤前的對話'], ['Reading', '签文生成', '籤文生成'],
+  ['Now using', '当前使用', '目前使用'], ['Provider', '服务商', '服務商'], ['Model', '模型', '模型'], ['Base URL', '接口地址（Base URL）', '介面位址（Base URL）'],
+  ['Temperature (optional)', '温度（可选）', '溫度（選填）'], ['Max tokens (optional)', '最大 tokens（可选）', '最大 tokens（選填）'],
+  ['List models', '获取模型列表', '取得模型清單'], ['Test connection', '测试连接', '測試連線'], ['Save', '保存', '儲存'], ['Saved.', '已保存。', '已儲存。'],
+  ['Testing…', '测试中…', '測試中…'], ['Connected in {ms} ms · model {model}', '连接成功，用时 {ms} 毫秒 · 模型 {model}', '連線成功，耗時 {ms} 毫秒 · 模型 {model}'],
+  ['Failed after {ms} ms: {error}', '失败（{ms} 毫秒）：{error}', '失敗（{ms} 毫秒）：{error}'],
+  ['{n} models found.', '找到 {n} 个模型。', '找到 {n} 個模型。'], ['No models found.', '没有找到模型。', '沒有找到模型。'],
+  ['API keys', 'API 密钥', 'API 金鑰'],
+  ['Keys are encrypted before they are stored and are never shown again; only the last 4 characters are displayed. A key saved here is used instead of the server’s environment variable.',
+    '密钥加密后保存，之后不会再显示，只显示最后 4 位。这里保存的密钥会优先于服务器环境变量。',
+    '金鑰加密後儲存，之後不會再顯示，只顯示最後 4 碼。這裡儲存的金鑰會優先於伺服器環境變數。'],
+  ['Saved here ••••{last4}', '已保存 ••••{last4}', '已儲存 ••••{last4}'], ['From {env} ••••{last4}', '来自 {env} ••••{last4}', '來自 {env} ••••{last4}'],
+  ['Not set', '未设置', '未設定'], ['Optional', '可选', '選填'], ['New key', '新密钥', '新金鑰'], ['Clear', '清除', '清除'],
+  ['Remove the saved key for {name}?', '确定删除 {name} 已保存的密钥？', '確定刪除 {name} 已儲存的金鑰？'],
+  ['Recent changes', '最近的修改', '最近的修改'], ['Admin', '管理员', '管理員'], ['Change', '修改内容', '修改內容'],
+  ['ai.settings', '模型设置', '模型設定'], ['ai.key.set', '保存密钥', '儲存金鑰'], ['ai.key.clear', '清除密钥', '清除金鑰'],
+  ['intake', '对话', '對話'], ['reading', '签文', '籤文'],
+  ['Mock (offline)', '离线模拟（不调用 AI）', '離線模擬（不呼叫 AI）'], ['Ollama (local)', 'Ollama（本地）', 'Ollama（本機）'],
+  ['vLLM (self-hosted)', 'vLLM（自建）', 'vLLM（自架）'], ['Custom (OpenAI-compatible)', '自定义（兼容 OpenAI 接口）', '自訂（相容 OpenAI 介面）'],
   // Privacy
   ['US privacy rights requests. Respond within 45 days.', '美国隐私权请求，须在 45 天内回复。', '美國隱私權請求，須在 45 天內回覆。'],
   ['No requests.', '暂无请求。', '暫無請求。'], ['Mark done', '标记为已完成', '標記為已完成'], ['done', '已完成', '已完成'],
@@ -118,6 +148,7 @@ const ZH = [
 const EN = {
   refund_requested: 'refund requested', dev: 'test payment', comp: 'free (super account)', voucher: 'voucher',
   free_reading: 'free reading', avatar_item: 'avatar item', deity_skin: 'spirit skin', do_not_sell: 'do not sell or share',
+  'ai.settings': 'model settings', 'ai.key.set': 'key saved', 'ai.key.clear': 'key cleared', intake: 'conversation',
 };
 const EN_GB = { 'color': 'colour', 'canceled': 'cancelled' };
 
@@ -208,7 +239,7 @@ async function ssoReturn() {
 }
 function logout() { token = ''; localStorage.removeItem('fm_admin'); $('#app').hidden = true; $('#login').hidden = false; }
 
-const tabs = { Dashboard: dashboard, Reports: reports, Users: users, Orders: orders, Content: content, 'Draw pool': rewards, Privacy: privacy };
+const tabs = { Dashboard: dashboard, Reports: reports, Users: users, Orders: orders, Content: content, 'Draw pool': rewards, 'AI models': aiModels, Privacy: privacy };
 let current = 'Dashboard';
 function nav() { $('#nav').innerHTML = Object.keys(tabs).map((k) => `<button class="${k===current?'on':''}" onclick="go('${k}')">${esc(t(k))}</button>`).join(''); }
 function go(k) { current = k; nav(); tabs[k](); }
@@ -295,6 +326,124 @@ async function rewards() {
     <td><input type="number" min="0" value="${r.weight}" style="width:80px" onchange="api('/admin/rewards/${r.id}',{method:'PATCH',body:JSON.stringify({weight:+this.value})}).then(rewards)" /></td>
     <td>${r.active && total ? (r.weight / total * 100).toLocaleString(lang, { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + '%' : '—'}</td>
     <td><input type="checkbox" ${r.active?'checked':''} onchange="api('/admin/rewards/${r.id}',{method:'PATCH',body:JSON.stringify({active:this.checked})}).then(rewards)" /></td></tr>`).join('')}</table></div>`;
+}
+
+// AI models: provider and model per task, API keys, recent changes (modules/ai on the server).
+let ai = null;
+const TASK_LABEL = { intake: 'Conversation before the reading', reading: 'Reading' };
+const providerName = (id) => esc(t(ai.providers[id]?.label ?? id));
+
+async function aiModels() {
+  ai = await api('/admin/ai');
+  const keyCell = (id) => {
+    const k = ai.keys[id], info = ai.providers[id];
+    return k.source === 'console' ? t('Saved here ••••{last4}', { last4: esc(k.last4) })
+      : k.source === 'env' ? t('From {env} ••••{last4}', { env: esc(k.env), last4: esc(k.last4) })
+      : `<span class="${info.keyRequired ? 'bad' : 'muted'}">${t(info.keyRequired ? 'Not set' : 'Optional')}</span>`;
+  };
+  $('#view').innerHTML = `<p class="muted">${t('Choose which AI writes the conversation before a reading and the reading itself. Changes apply within a few seconds; the offline mock needs no key.')}</p>
+  <div class="ai">${Object.keys(ai.tasks).map((task) => {
+    const c = ai.tasks[task];
+    return `<div class="card">
+      <h2 style="margin-top:0">${t(TASK_LABEL[task])}</h2>
+      <div class="muted">${t('Now using')}: <span class="pill">${providerName(c.provider)}${c.model ? ' · ' + esc(c.model) : ''}</span></div>
+      <label>${t('Provider')}</label>
+      <select id="ai_${task}_provider" onchange="aiProviderChanged('${task}')">${Object.keys(ai.providers).map((id) =>
+        `<option value="${id}" ${id === c.provider ? 'selected' : ''}>${providerName(id)}</option>`).join('')}</select>
+      <label>${t('Model')}</label>
+      <input id="ai_${task}_model" list="ai_${task}_models" value="${esc(c.model)}" /><datalist id="ai_${task}_models"></datalist>
+      <label>${t('Base URL')}</label><input id="ai_${task}_url" value="${esc(c.baseUrl)}" />
+      <div class="pair">
+        <div><label>${t('Temperature (optional)')}</label><input id="ai_${task}_temp" type="number" min="0" max="2" step="0.1" value="${c.temperature ?? ''}" /></div>
+        <div><label>${t('Max tokens (optional)')}</label><input id="ai_${task}_max" type="number" min="64" step="64" value="${c.maxTokens ?? ''}" /></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" onclick="aiListModels('${task}')">${t('List models')}</button>
+        <button class="btn" onclick="aiTest('${task}')">${t('Test connection')}</button>
+        <button class="btn primary" onclick="aiSave('${task}')">${t('Save')}</button>
+      </div>
+      <div id="ai_${task}_result" class="result"></div>
+    </div>`;
+  }).join('')}</div>
+  <h2>${t('API keys')}</h2>
+  <p class="muted">${t('Keys are encrypted before they are stored and are never shown again; only the last 4 characters are displayed. A key saved here is used instead of the server’s environment variable.')}</p>
+  <div class="scroll"><table><tr><th>${t('Provider')}</th><th>${t('Status')}</th><th>${t('New key')}</th><th></th></tr>
+  ${Object.keys(ai.keys).map((id) => `<tr><td>${providerName(id)}</td><td>${keyCell(id)}</td>
+    <td><input id="key_${id}" type="password" autocomplete="off" style="width:100%" /></td>
+    <td style="white-space:nowrap"><button class="btn primary" onclick="aiSaveKey('${id}')">${t('Save')}</button>
+      ${ai.keys[id].source === 'console' ? `<button class="btn" onclick="aiClearKey('${id}')">${t('Clear')}</button>` : ''}</td></tr>`).join('')}</table></div>
+  <h2>${t('Recent changes')}</h2>
+  <div class="scroll"><table><tr><th>${t('When')}</th><th>${t('Admin')}</th><th>${t('Change')}</th></tr>
+  ${ai.audit.map((a) => `<tr><td>${when(a.created_at)}</td><td>${esc(a.admin_email ?? '')}</td><td>${esc(t(a.action))}: ${esc(auditText(a))}</td></tr>`).join('')
+    || `<tr><td colspan=3 class="muted">${t('Nothing here.')}</td></tr>`}</table></div>`;
+  for (const task of Object.keys(ai.tasks)) aiProviderChanged(task, true);
+}
+
+function auditText(a) {
+  const d = a.details || {};
+  if (a.action === 'ai.settings') return `${t(d.task)} → ${t(ai.providers[d.after?.provider]?.label ?? d.after?.provider ?? '')}${d.after?.model ? ' · ' + d.after.model : ''}`;
+  return `${t(ai.providers[d.provider]?.label ?? d.provider ?? '')}${d.last4 ? ' ••••' + d.last4 : ''}`;
+}
+
+/** Fills model suggestions and the base URL for the chosen provider; only self-hosted/custom URLs are editable. */
+function aiProviderChanged(task, initial = false) {
+  const id = $(`#ai_${task}_provider`).value, info = ai.providers[id];
+  $(`#ai_${task}_models`).innerHTML = info.models.map((m) => `<option value="${esc(m)}"></option>`).join('');
+  const url = $(`#ai_${task}_url`);
+  if (!initial || !url.value) url.value = info.baseUrl;
+  url.disabled = !info.editableUrl;
+  if (!initial) $(`#ai_${task}_model`).value = info.models[0] ?? '';
+  const off = id === 'mock';
+  for (const f of ['model', 'url', 'temp', 'max']) $(`#ai_${task}_${f}`).disabled = off || (f === 'url' && !info.editableUrl);
+}
+
+function aiForm(task) {
+  const num = (sel) => { const v = $(sel).value.trim(); return v === '' ? null : Number(v); };
+  return { provider: $(`#ai_${task}_provider`).value, model: $(`#ai_${task}_model`).value.trim(), baseUrl: $(`#ai_${task}_url`).value.trim(),
+    temperature: num(`#ai_${task}_temp`), maxTokens: num(`#ai_${task}_max`) };
+}
+const typedKey = (provider) => $(`#key_${provider}`)?.value.trim() || undefined;
+
+async function aiPost(path, body) {
+  const res = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(body) });
+  return res.json().catch(() => ({}));
+}
+
+async function aiTest(task) {
+  const out = $(`#ai_${task}_result`), settings = aiForm(task);
+  out.className = 'result muted'; out.textContent = t('Testing…');
+  const r = await aiPost('/admin/ai/test', { settings, apiKey: typedKey(settings.provider) });
+  if (r.error && r.ok === undefined) { out.className = 'result bad'; out.textContent = r.message || r.error; return; }
+  out.className = 'result ' + (r.ok ? 'ok' : 'bad');
+  out.textContent = r.ok ? `${t('Connected in {ms} ms · model {model}', { ms: r.latencyMs, model: r.model })}\n“${r.reply}”`
+    : t('Failed after {ms} ms: {error}', { ms: r.latencyMs, error: r.error });
+}
+
+async function aiListModels(task) {
+  const out = $(`#ai_${task}_result`), settings = aiForm(task);
+  out.className = 'result muted'; out.textContent = t('Testing…');
+  const r = await aiPost('/admin/ai/models', { settings: { provider: settings.provider, baseUrl: settings.baseUrl }, apiKey: typedKey(settings.provider) });
+  const models = r.models ?? [];
+  if (models.length) $(`#ai_${task}_models`).innerHTML = models.map((m) => `<option value="${esc(m)}"></option>`).join('');
+  out.className = 'result ' + (models.length ? 'ok' : 'bad');
+  out.textContent = models.length ? `${t('{n} models found.', { n: models.length })} ${models.slice(0, 12).join(', ')}${models.length > 12 ? '…' : ''}` : (r.error || t('No models found.'));
+}
+
+async function aiSave(task) {
+  const res = await fetch(API + '/admin/ai/' + task, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(aiForm(task)) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { const out = $(`#ai_${task}_result`); out.className = 'result bad'; out.textContent = body.message || t('Error'); return; }
+  await aiModels();
+  const out = $(`#ai_${task}_result`); out.className = 'result ok'; out.textContent = t('Saved.');
+}
+async function aiSaveKey(id) {
+  const apiKey = typedKey(id);
+  if (!apiKey) return;
+  await api('/admin/ai/keys/' + id, { method: 'PUT', body: JSON.stringify({ apiKey }) }); aiModels();
+}
+async function aiClearKey(id) {
+  if (!confirm(t('Remove the saved key for {name}?', { name: t(ai.providers[id].label) }))) return;
+  await api('/admin/ai/keys/' + id, { method: 'DELETE' }); aiModels();
 }
 
 async function privacy() {

@@ -16,6 +16,11 @@ const Env = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-5-5'),
   ANTHROPIC_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('low'),
+  // Admins pick the AI provider and model per task in the console (/console → AI models). Provider keys can be
+  // entered there (stored encrypted with this key) or set as env vars: OPENAI_API_KEY, DEEPSEEK_API_KEY,
+  // GEMINI_API_KEY, XAI_API_KEY, DASHSCOPE_API_KEY, MOONSHOT_API_KEY, OPENROUTER_API_KEY, OLLAMA_API_KEY,
+  // VLLM_API_KEY, CUSTOM_LLM_API_KEY. Required in production to save keys in the console.
+  SETTINGS_ENCRYPTION_KEY: z.union([z.literal(''), z.string().min(32)]).optional(),
 
   // Stripe. Without a secret key the dev payment flow is used (never in production).
   STRIPE_SECRET_KEY: z.string().optional(),

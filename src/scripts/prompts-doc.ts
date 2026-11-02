@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { DEITIES } from '../db/seedData.js';
 import { LANGUAGES } from '../lib/i18n.js';
 import { buildGreeting, TEMPLATES } from '../modules/memory/greeting.js';
+import { PROVIDER_IDS, PROVIDERS } from '../modules/ai/providers.js';
 import { _prompts, LANGUAGE_RULE } from '../modules/readings/generator.js';
 import {
   buildIntakeSystem, INTAKE_JSON_SCHEMA, INTAKE_LANGUAGE, MAX_ANSWERS, MOCK_SCRIPT, START_NOTE, USER_MAX,
@@ -35,8 +36,12 @@ const doc = `# Fortune Muse: AI prompts
 
 Generated from the code by \`npm run prompts:doc\`. Do not edit by hand; change the code and regenerate.
 
-Model: \`ANTHROPIC_MODEL\` (default \`claude-opus-5-5\`), effort \`ANTHROPIC_EFFORT\` (default \`low\`), structured JSON output, server-side fallback enabled.
-Without \`ANTHROPIC_API_KEY\` the app uses the scripted mock replies listed below.
+Provider and model: chosen per task (intake conversation, reading) by an admin in the console, AI models page:
+${PROVIDER_IDS.map((id) => PROVIDERS[id].label).join(', ')}.
+Claude uses structured JSON output with server-side fallback and \`ANTHROPIC_EFFORT\`; OpenAI-compatible providers get
+\`response_format: json_schema\` (OpenAI, Gemini, Grok, OpenRouter, Ollama, vLLM) or \`json_object\` with the schema
+appended to the system prompt (DeepSeek, Qwen, Kimi, custom). Every answer is validated against the schema; an invalid
+answer is retried once. With the offline mock (the default without \`ANTHROPIC_API_KEY\`) the app uses the scripted replies listed below.
 
 There are three places where text is produced for the user:
 

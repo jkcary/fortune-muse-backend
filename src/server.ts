@@ -12,6 +12,8 @@ import { HttpError } from './lib/errors.js';
 import { devOutbox } from './lib/mailer.js';
 import accountRoutes from './modules/account/routes.js';
 import adminRoutes from './modules/admin/routes.js';
+import aiRoutes from './modules/ai/routes.js';
+import { getTaskConfig } from './modules/ai/settings.js';
 import oauthRoutes from './modules/auth/oauth.js';
 import authRoutes from './modules/auth/routes.js';
 import deityRoutes from './modules/deities/routes.js';
@@ -52,7 +54,9 @@ export async function buildServer() {
 
   app.get('/health', async () => {
     await pool.query('SELECT 1');
-    return { ok: true, devPayments: config.devPayments, ai: config.ANTHROPIC_API_KEY ? 'claude' : 'mock' };
+    const [intake, reading] = await Promise.all([getTaskConfig('intake'), getTaskConfig('reading')]);
+    const name = (c: { provider: string; model: string }) => (c.model ? `${c.provider}:${c.model}` : c.provider);
+    return { ok: true, devPayments: config.devPayments, ai: { intake: name(intake), reading: name(reading) } };
   });
   app.get('/console', async (_req, reply) => reply.redirect('/console/admin.html'));
 
@@ -62,7 +66,7 @@ export async function buildServer() {
   }
 
   for (const routes of [authRoutes, oauthRoutes, profileRoutes, deityRoutes, readingRoutes, paymentRoutes, memoryRoutes, drawRoutes,
-    roomRoutes, moderationRoutes, accountRoutes, adminRoutes]) {
+    roomRoutes, moderationRoutes, accountRoutes, adminRoutes, aiRoutes]) {
     await app.register(routes);
   }
   return app;

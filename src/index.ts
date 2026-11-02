@@ -3,6 +3,7 @@ import { migrate } from './db/migrate.js';
 import { seed } from './db/seed.js';
 import { startJobs } from './jobs.js';
 import { applyAdminRole } from './lib/super.js';
+import { getTaskConfig } from './modules/ai/settings.js';
 import { buildServer } from './server.js';
 
 await migrate();
@@ -11,4 +12,5 @@ await applyAdminRole();
 const app = await buildServer();
 startJobs(app.log);
 await app.listen({ port: config.PORT, host: config.HOST });
-app.log.info(`AI: ${config.ANTHROPIC_API_KEY ? config.ANTHROPIC_MODEL : 'mock generator'} · payments: ${config.devPayments ? 'DEV (no Stripe key)' : 'Stripe'}`);
+const reading = await getTaskConfig('reading');
+app.log.info(`AI (readings): ${reading.provider}${reading.model ? ` ${reading.model}` : ''} · payments: ${config.devPayments ? 'DEV (no Stripe key)' : 'Stripe'}`);
