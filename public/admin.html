@@ -7,8 +7,8 @@
 <style>
   :root { --bg:#fbf7ef; --card:#fff; --ink:#2b2118; --muted:#7a6a58; --gold:#c8961e; --red:#b33a2b; --line:#eadfcb; }
   * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--ink); }
-  header { display:flex; align-items:center; gap:16px; padding:12px 20px; background:#2b2118; color:#fbe7b5; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:16px; padding:12px 20px; background:#2b2118; color:#fbe7b5; flex-wrap:wrap; }
   header b { font-size:16px; } nav { display:flex; gap:4px; flex-wrap:wrap; }
   nav button { background:none; border:0; color:#fbe7b5; padding:6px 10px; border-radius:6px; cursor:pointer; }
   nav button.on { background:#4a3a2a; }
@@ -24,39 +24,160 @@
   button.btn { cursor:pointer; } button.primary { background:var(--gold); color:#fff; border-color:var(--gold); }
   .row { display:flex; gap:8px; align-items:center; margin:0 0 12px; flex-wrap:wrap; }
   #login { max-width:340px; margin:80px auto; } #login input { width:100%; margin-bottom:8px; }
+  .lang { display:flex; align-items:center; gap:6px; }
+  header .lang select { background:#4a3a2a; color:#fbe7b5; border-color:#6a5640; }
+  #login .lang { justify-content:flex-end; margin-bottom:8px; }
   h2 { margin:24px 0 12px; font-size:16px; } .muted { color:var(--muted); }
   .scroll { overflow-x:auto; }
 </style>
 </head>
 <body>
 <div id="login" class="card" hidden>
-  <h2>Fortune Muse Console</h2>
-  <input id="em" type="email" placeholder="Admin email" />
-  <input id="pw" type="password" placeholder="Password" />
-  <button class="btn primary" onclick="login()">Sign in</button>
+  <div class="lang"><span aria-hidden="true">🌐</span><select class="langPick" onchange="setLang(this.value)" data-i18n-aria="Language"></select></div>
+  <h2 data-i18n="Fortune Muse Console">Fortune Muse Console</h2>
+  <input id="em" type="email" data-i18n-ph="Admin email" placeholder="Admin email" />
+  <input id="pw" type="password" data-i18n-ph="Password" placeholder="Password" />
+  <button class="btn primary" onclick="login()" data-i18n="Sign in">Sign in</button>
   <div id="sso" style="margin-top:12px"></div>
   <p id="lerr" class="bad"></p>
 </div>
 <div id="app" hidden>
-  <header><b>💰 Fortune Muse Console</b>
+  <header><b>💰 <span data-i18n="Fortune Muse Console">Fortune Muse Console</span></b>
     <nav id="nav"></nav>
-    <span style="margin-left:auto"><button class="btn" onclick="logout()">Sign out</button></span>
+    <span style="margin-left:auto" class="lang">
+      <span aria-hidden="true">🌐</span><select class="langPick" onchange="setLang(this.value)" data-i18n-aria="Language"></select>
+      <button class="btn" onclick="logout()" data-i18n="Sign out">Sign out</button>
+    </span>
   </header>
   <main id="view"></main>
 </div>
 <script>
+// --- Language ---------------------------------------------------------------
+// Same four languages as the app. Rows are [English, 简体中文, 繁體中文]; British English only differs where listed.
+const LANGS = [['zh-Hans', '简体中文'], ['zh-Hant', '繁體中文'], ['en-GB', 'English (UK)'], ['en-US', 'English (US)']];
+const ZH = [
+  ['Fortune Muse Console', '财神签管理后台', '財神籤管理後台'],
+  ['Language', '语言', '語言'],
+  ['Admin email', '管理员邮箱', '管理員電子郵件'],
+  ['Password', '密码', '密碼'],
+  ['Sign in', '登录', '登入'],
+  ['Sign out', '退出登录', '登出'],
+  ['Sign in with {name}', '使用 {name} 登录', '使用 {name} 登入'],
+  ['Sign-in was cancelled or failed.', '登录已取消或失败。', '登入已取消或失敗。'],
+  ['Sign-in failed.', '登录失败。', '登入失敗。'],
+  ['No Fortune Muse account for {email} yet. Create it in the app first, then sign in here.', '{email} 还没有财神签账号。请先在 App 里注册，再回来登录。', '{email} 還沒有財神籤帳號。請先在 App 裡註冊，再回來登入。'],
+  ['Not an admin', '不是管理员账号', '不是管理員帳號'],
+  ['Error', '出错了', '發生錯誤'],
+  // Nav
+  ['Dashboard', '概览', '總覽'], ['Reports', '举报', '檢舉'], ['Users', '用户', '使用者'], ['Orders', '订单', '訂單'],
+  ['Content', '内容库', '內容庫'], ['Draw pool', '抽卡奖池', '抽卡獎池'], ['Privacy', '隐私请求', '隱私請求'],
+  // Dashboard
+  ['Revenue', '收入', '收入'], ['Paying users', '付费用户', '付費使用者'], ['Open reports', '待处理举报', '待處理檢舉'],
+  ['MVP success metrics', 'MVP 成功指标', 'MVP 成功指標'], ['target ≥ {n}%', '目标 ≥ {n}%', '目標 ≥ {n}%'],
+  ['Last 14 days', '最近 14 天', '最近 14 天'], ['Day', '日期', '日期'], ['Signups', '注册', '註冊'], ['Readings', '求签', '求籤'],
+  ['Signup → first reading', '注册 → 首次求签', '註冊 → 首次求籤'], ['First reading → paid', '首次求签 → 付费', '首次求籤 → 付費'],
+  ['Day-1 retention', '次日留存', '次日留存'], ['Day-7 retention', '7 日留存', '7 日留存'],
+  ['Memory turned on', '开启记忆功能', '開啟記憶功能'], ['Room members who spoke', '聊天室发言率', '聊天室發言率'],
+  // Reports
+  ['When', '时间', '時間'], ['Reason', '原因', '原因'], ['Reported user', '被举报用户', '被檢舉使用者'], ['Message', '消息', '訊息'],
+  ['By', '举报人', '檢舉人'], ['Action', '操作', '操作'], ['Dismiss', '驳回', '駁回'], ['Restrict', '限制', '限制'], ['Ban', '封禁', '停權'],
+  ['Nothing here.', '暂无内容。', '暫無內容。'], ['Note (optional)', '备注（可选）', '備註（選填）'],
+  ['open', '待处理', '待處理'], ['actioned', '已处理', '已處理'], ['dismissed', '已驳回', '已駁回'],
+  ['harassment', '骚扰', '騷擾'], ['hate', '仇恨言论', '仇恨言論'], ['sexual', '色情内容', '色情內容'], ['spam', '垃圾信息', '垃圾訊息'],
+  ['scam', '诈骗', '詐騙'], ['underage', '未满 18 岁', '未滿 18 歲'], ['other', '其他', '其他'],
+  // Users
+  ['Search email or handle', '搜索邮箱或昵称', '搜尋電子郵件或暱稱'], ['Search', '搜索', '搜尋'], ['Handle', '昵称', '暱稱'],
+  ['Email', '邮箱', '電子郵件'], ['Status', '状态', '狀態'], ['Joined', '注册时间', '註冊時間'], ['Delete', '删除', '刪除'],
+  ['(unverified)', '（未验证）', '（未驗證）'], ['active', '正常', '正常'], ['restricted', '受限', '受限'], ['banned', '已封禁', '已停權'],
+  ['Permanently delete {name} and all their data?', '永久删除 {name} 及其所有数据？', '永久刪除 {name} 及其所有資料？'],
+  // Orders
+  ['User', '用户', '使用者'], ['Amount', '金额', '金額'], ['Provider', '支付方式', '付款方式'], ['Refund', '退款', '退款'],
+  ['all', '全部', '全部'], ['(deleted)', '（已删除）', '（已刪除）'], ['+ {tax} tax', '+ {tax} 税', '+ {tax} 稅'], ['Refund this order?', '确定给这笔订单退款？', '確定為這筆訂單退款？'],
+  ['paid', '已付款', '已付款'], ['refund_requested', '已申请退款', '已申請退款'], ['refunded', '已退款', '已退款'], ['pending', '待付款', '待付款'], ['canceled', '已取消', '已取消'],
+  ['stripe', 'Stripe', 'Stripe'], ['dev', '测试付款', '測試付款'], ['voucher', '求签券', '求籤券'], ['comp', '免费（超级账号）', '免費（超級帳號）'],
+  // Content
+  ['Add', '添加', '新增'], ['any topic', '不限主题', '不限主題'], ['wealth', '财运', '財運'], ['love', '感情', '感情'], ['any', '不限', '不限'],
+  ['Item', '项目', '項目'], ['Topic', '主题', '主題'], ['Active', '启用', '啟用'], ['Fill every field', '请填写所有字段', '請填寫所有欄位'],
+  ['song', '歌曲', '歌曲'], ['drink', '饮品', '飲品'], ['food', '食物', '食物'], ['action', '幸运行动', '幸運行動'],
+  ['outfit', '穿搭', '穿搭'], ['shoes', '鞋子', '鞋子'], ['color', '颜色', '顏色'],
+  ['title', '歌名', '歌名'], ['artist', '歌手', '歌手'], ['name', '名称', '名稱'], ['text', '内容', '內容'], ['style', '款式', '款式'],
+  ['Lucky actions: one concrete thing doable today, with an exact object, number, place or time. No vague words.',
+    '幸运行动：今天就能完成的一件具体的事，写明具体物品、数字、地点或时间，不要用模糊的词。',
+    '幸運行動：今天就能完成的一件具體的事，寫明具體物品、數字、地點或時間，不要用模糊的詞。'],
+  ['No alcohol — the server rejects it.', '不能包含酒类，服务器会拒绝。', '不能包含酒類，伺服器會拒絕。'],
+  // Draw pool
+  ['Odds are published to users on the draw screen. Draws are free and never tied to spending.', '中奖概率会在抽卡页面公开给用户。抽卡免费，与消费无关。', '中獎機率會在抽卡頁面公開給使用者。抽卡免費，與消費無關。'],
+  ['Reward', '奖励', '獎勵'], ['Type', '类型', '類型'], ['Weight', '权重', '權重'], ['Odds', '概率', '機率'],
+  ['free_reading', '免费求签券', '免費求籤券'], ['avatar_item', '头像装扮', '頭像裝扮'], ['deity_skin', '财神皮肤', '財神造型'], ['sticker', '贴纸', '貼紙'],
+  // Privacy
+  ['US privacy rights requests. Respond within 45 days.', '美国隐私权请求，须在 45 天内回复。', '美國隱私權請求，須在 45 天內回覆。'],
+  ['No requests.', '暂无请求。', '暫無請求。'], ['Mark done', '标记为已完成', '標記為已完成'], ['done', '已完成', '已完成'],
+  ['access', '获取数据', '取得資料'], ['delete', '删除数据', '刪除資料'], ['do_not_sell', '请勿出售或分享', '請勿出售或分享'], ['correct', '更正数据', '更正資料'],
+];
+// English labels for code values (statuses, providers, types); other English text is the key itself.
+const EN = {
+  refund_requested: 'refund requested', dev: 'test payment', comp: 'free (super account)', voucher: 'voucher',
+  free_reading: 'free reading', avatar_item: 'avatar item', deity_skin: 'spirit skin', do_not_sell: 'do not sell or share',
+};
+const EN_GB = { 'color': 'colour', 'canceled': 'cancelled' };
+
+const TABLE = { 'zh-Hans': new Map(ZH.map((r) => [r[0], r[1]])), 'zh-Hant': new Map(ZH.map((r) => [r[0], r[2]])) };
+const isLang = (l) => LANGS.some(([id]) => id === l);
+function browserLang() {
+  const tag = (navigator.language || '').toLowerCase();
+  if (tag.startsWith('zh')) return /hant|-tw|-hk|-mo/.test(tag) ? 'zh-Hant' : 'zh-Hans';
+  return tag.startsWith('en-gb') ? 'en-GB' : 'en-US';
+}
+let lang = (() => { try { const l = localStorage.getItem('fm_admin_lang'); return isLang(l) ? l : browserLang(); } catch { return browserLang(); } })();
+
+function t(text, vars) {
+  let out = TABLE[lang]?.get(text) ?? (lang === 'en-GB' ? EN_GB[text] : null) ?? (TABLE[lang] ? null : EN[text]) ?? text;
+  if (vars) out = out.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+  return out;
+}
+
+/** Static text in the page carries data-i18n attributes; tab content is re-rendered. */
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('Fortune Muse Console');
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+  document.querySelectorAll('.langPick').forEach((el) => {
+    el.innerHTML = LANGS.map(([id, label]) => `<option value="${id}" ${id === lang ? 'selected' : ''}>${label}</option>`).join('');
+  });
+}
+
+/** Changes the language now, remembers it in this browser and, when signed in, on the admin's account. */
+function setLang(l, save = true) {
+  if (!isLang(l)) return;
+  lang = l;
+  try { localStorage.setItem('fm_admin_lang', l); } catch {}
+  applyLang();
+  ssoButtons();
+  if (!$('#app').hidden) go(current);
+  if (!save) return;
+  if (token) api('/me', { method: 'PATCH', body: JSON.stringify({ language: l }) }).catch(() => {});
+  // Picked on the sign-in screen: saved to the account once signed in (see boot).
+  else try { localStorage.setItem('fm_admin_lang_pending', '1'); } catch {}
+}
+
+// --- API and helpers ----------------------------------------------------------
 const API = location.origin;
 let token = localStorage.getItem('fm_admin') || '';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-const money = (c) => '$' + (c / 100).toFixed(2);
-const when = (d) => d ? new Date(d).toLocaleString() : '';
+// Prices stay in US dollars; only the formatting follows the language.
+const money = (c) => new Intl.NumberFormat(lang, { style: 'currency', currency: 'USD' }).format(c / 100);
+const when = (d) => d ? new Date(d).toLocaleString(lang) : '';
+const day = (d) => new Date(d).toLocaleDateString(lang, { timeZone: 'UTC' });
+const choices = (values, selected) => values.map((v) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${esc(t(v))}</option>`).join('');
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
   const body = await res.json().catch(() => ({}));
-  if (res.status === 401 || res.status === 403) { logout(); throw new Error('Not an admin'); }
-  if (!res.ok) { alert(body.message || 'Error'); throw new Error(body.message); }
+  if (res.status === 401 || res.status === 403) { logout(); throw new Error(t('Not an admin')); }
+  if (!res.ok) { alert(body.message || t('Error')); throw new Error(body.message); }
   return body;
 }
 
@@ -72,123 +193,133 @@ async function ssoButtons() {
   const back = encodeURIComponent(location.origin + location.pathname);
   const label = { google: 'Google', microsoft: 'Microsoft', apple: 'Apple' };
   $('#sso').innerHTML = providers.map((p) =>
-    `<a class="btn" style="display:block;text-align:center;margin-bottom:6px;text-decoration:none" href="/auth/oauth/${p.id}/start?redirect=${back}">Sign in with ${label[p.id]}</a>`).join('');
+    `<a class="btn" style="display:block;text-align:center;margin-bottom:6px;text-decoration:none" href="/auth/oauth/${p.id}/start?redirect=${back}">${esc(t('Sign in with {name}', { name: label[p.id] }))}</a>`).join('');
 }
 async function ssoReturn() {
   const q = new URLSearchParams(location.search);
   if (!q.has('ticket') && !q.has('error')) return;
   history.replaceState(null, '', location.pathname);
-  if (q.get('error')) { $('#lerr').textContent = 'Sign-in was cancelled or failed.'; return; }
+  if (q.get('error')) { $('#lerr').textContent = t('Sign-in was cancelled or failed.'); return; }
   const res = await fetch(API + '/auth/oauth/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ticket: q.get('ticket') }) });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) { $('#lerr').textContent = body.message || 'Sign-in failed.'; return; }
-  if (!body.token) { $('#lerr').textContent = 'No Fortune Muse account for ' + body.email + ' yet. Create it in the app first, then sign in here.'; return; }
+  if (!res.ok) { $('#lerr').textContent = body.message || t('Sign-in failed.'); return; }
+  if (!body.token) { $('#lerr').textContent = t('No Fortune Muse account for {email} yet. Create it in the app first, then sign in here.', { email: body.email }); return; }
   token = body.token; localStorage.setItem('fm_admin', token);
 }
 function logout() { token = ''; localStorage.removeItem('fm_admin'); $('#app').hidden = true; $('#login').hidden = false; }
 
 const tabs = { Dashboard: dashboard, Reports: reports, Users: users, Orders: orders, Content: content, 'Draw pool': rewards, Privacy: privacy };
 let current = 'Dashboard';
-function nav() { $('#nav').innerHTML = Object.keys(tabs).map((t) => `<button class="${t===current?'on':''}" onclick="go('${t}')">${t}</button>`).join(''); }
-function go(t) { current = t; nav(); tabs[t](); }
+function nav() { $('#nav').innerHTML = Object.keys(tabs).map((k) => `<button class="${k===current?'on':''}" onclick="go('${k}')">${esc(t(k))}</button>`).join(''); }
+function go(k) { current = k; nav(); tabs[k](); }
 
 async function dashboard() {
   const s = await api('/admin/stats');
   $('#view').innerHTML = `
     <div class="grid">
-      <div class="card kpi"><div class="t">Users</div><div class="v">${s.totals.users}</div></div>
-      <div class="card kpi"><div class="t">Revenue</div><div class="v">${money(s.totals.revenueCents)}</div></div>
-      <div class="card kpi"><div class="t">Paying users</div><div class="v">${s.totals.payers}</div></div>
-      <div class="card kpi"><div class="t">Open reports</div><div class="v ${s.totals.openReports?'bad':''}">${s.totals.openReports}</div></div>
+      <div class="card kpi"><div class="t">${t('Users')}</div><div class="v">${s.totals.users.toLocaleString(lang)}</div></div>
+      <div class="card kpi"><div class="t">${t('Revenue')}</div><div class="v">${money(s.totals.revenueCents)}</div></div>
+      <div class="card kpi"><div class="t">${t('Paying users')}</div><div class="v">${s.totals.payers.toLocaleString(lang)}</div></div>
+      <div class="card kpi"><div class="t">${t('Open reports')}</div><div class="v ${s.totals.openReports?'bad':''}">${s.totals.openReports}</div></div>
     </div>
-    <h2>MVP success metrics</h2>
-    <div class="grid">${s.kpis.map((k) => `<div class="card kpi"><div class="t">${esc(k.label)}</div>
-      <div class="v ${k.value >= k.target ? 'ok' : 'bad'}">${k.value}%</div><div class="t">target ≥ ${k.target}%</div></div>`).join('')}</div>
-    <h2>Last 14 days</h2>
-    <div class="scroll"><table><tr><th>Day</th><th>Signups</th><th>Readings</th><th>Revenue</th></tr>
-    ${s.daily.map((d) => `<tr><td>${d.day.slice(0,10)}</td><td>${d.signups}</td><td>${d.readings}</td><td>${money(d.revenue)}</td></tr>`).join('')}</table></div>`;
+    <h2>${t('MVP success metrics')}</h2>
+    <div class="grid">${s.kpis.map((k) => `<div class="card kpi"><div class="t">${esc(t(k.label))}</div>
+      <div class="v ${k.value >= k.target ? 'ok' : 'bad'}">${k.value}%</div><div class="t">${t('target ≥ {n}%', { n: k.target })}</div></div>`).join('')}</div>
+    <h2>${t('Last 14 days')}</h2>
+    <div class="scroll"><table><tr><th>${t('Day')}</th><th>${t('Signups')}</th><th>${t('Readings')}</th><th>${t('Revenue')}</th></tr>
+    ${s.daily.map((d) => `<tr><td>${day(d.day)}</td><td>${d.signups}</td><td>${d.readings}</td><td>${money(d.revenue)}</td></tr>`).join('')}</table></div>`;
 }
 
 async function reports(status = 'open') {
   const { reports } = await api('/admin/reports?status=' + status);
-  $('#view').innerHTML = `<div class="row"><select onchange="reports(this.value)">${['open','actioned','dismissed'].map((s)=>`<option ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>
-  <div class="scroll"><table><tr><th>When</th><th>Reason</th><th>Reported user</th><th>Message</th><th>By</th><th>Action</th></tr>
-  ${reports.map((r) => `<tr><td>${when(r.created_at)}</td><td>${esc(r.reason)}<div class="muted">${esc(r.details)}</div></td>
-    <td>${esc(r.target_handle)} <span class="muted">(${esc(r.target_status)})</span></td><td>${esc(r.message_snapshot)}</td><td>${esc(r.reporter_handle)}</td>
-    <td>${r.status==='open' ? `<button class="btn" onclick="resolve('${r.id}','dismissed','none')">Dismiss</button>
-      <button class="btn" onclick="resolve('${r.id}','actioned','restrict')">Restrict</button>
-      <button class="btn" onclick="resolve('${r.id}','actioned','ban')">Ban</button>` : esc(r.resolution_note || r.status)}</td></tr>`).join('') || '<tr><td colspan=6 class="muted">Nothing here.</td></tr>'}</table></div>`;
+  $('#view').innerHTML = `<div class="row"><select onchange="reports(this.value)">${choices(['open','actioned','dismissed'], status)}</select></div>
+  <div class="scroll"><table><tr><th>${t('When')}</th><th>${t('Reason')}</th><th>${t('Reported user')}</th><th>${t('Message')}</th><th>${t('By')}</th><th>${t('Action')}</th></tr>
+  ${reports.map((r) => `<tr><td>${when(r.created_at)}</td><td>${esc(t(r.reason))}<div class="muted">${esc(r.details)}</div></td>
+    <td>${esc(r.target_handle)} <span class="muted">(${esc(t(r.target_status))})</span></td><td>${esc(r.message_snapshot)}</td><td>${esc(r.reporter_handle)}</td>
+    <td>${r.status==='open' ? `<button class="btn" onclick="resolve('${r.id}','dismissed','none')">${t('Dismiss')}</button>
+      <button class="btn" onclick="resolve('${r.id}','actioned','restrict')">${t('Restrict')}</button>
+      <button class="btn" onclick="resolve('${r.id}','actioned','ban')">${t('Ban')}</button>` : esc(r.resolution_note || t(r.status))}</td></tr>`).join('') || `<tr><td colspan=6 class="muted">${t('Nothing here.')}</td></tr>`}</table></div>`;
 }
 async function resolve(id, status, userAction) {
-  const note = prompt('Note (optional)') ?? '';
+  const note = prompt(t('Note (optional)')) ?? '';
   await api('/admin/reports/' + id, { method:'PATCH', body: JSON.stringify({ status, userAction, note }) }); reports();
 }
 
 async function users(q = '') {
   const { users } = await api('/admin/users?q=' + encodeURIComponent(q));
-  $('#view').innerHTML = `<div class="row"><input id="uq" placeholder="Search email or handle" value="${esc(q)}" /><button class="btn" onclick="users($('#uq').value)">Search</button></div>
-  <div class="scroll"><table><tr><th>Handle</th><th>Email</th><th>Status</th><th>Readings</th><th>Reports</th><th>Joined</th><th></th></tr>
-  ${users.map((u) => `<tr><td>${esc(u.handle)}</td><td>${esc(u.email)} ${u.email_verified?'':'<span class="muted">(unverified)</span>'}</td>
-    <td><select onchange="setStatus('${u.id}', this.value)">${['active','restricted','banned'].map((s)=>`<option ${s===u.status?'selected':''}>${s}</option>`).join('')}</select></td>
+  $('#view').innerHTML = `<div class="row"><input id="uq" placeholder="${esc(t('Search email or handle'))}" value="${esc(q)}" /><button class="btn" onclick="users($('#uq').value)">${t('Search')}</button></div>
+  <div class="scroll"><table><tr><th>${t('Handle')}</th><th>${t('Email')}</th><th>${t('Status')}</th><th>${t('Readings')}</th><th>${t('Reports')}</th><th>${t('Joined')}</th><th></th></tr>
+  ${users.map((u) => `<tr><td>${esc(u.handle)}</td><td>${esc(u.email)} ${u.email_verified?'':`<span class="muted">${t('(unverified)')}</span>`}</td>
+    <td><select onchange="setStatus('${u.id}', this.value)">${choices(['active','restricted','banned'], u.status)}</select></td>
     <td>${u.readings}</td><td>${u.reports_against}</td><td>${when(u.created_at)}</td>
-    <td><button class="btn" onclick="delUser('${u.id}','${esc(u.handle)}')">Delete</button></td></tr>`).join('')}</table></div>`;
+    <td><button class="btn" onclick="delUser('${u.id}','${esc(u.handle)}')">${t('Delete')}</button></td></tr>`).join('')}</table></div>`;
 }
 async function setStatus(id, status) { await api('/admin/users/' + id, { method:'PATCH', body: JSON.stringify({ status }) }); }
-async function delUser(id, h) { if (confirm('Permanently delete ' + h + ' and all their data?')) { await api('/admin/users/' + id, { method:'DELETE' }); users(); } }
+async function delUser(id, h) { if (confirm(t('Permanently delete {name} and all their data?', { name: h }))) { await api('/admin/users/' + id, { method:'DELETE' }); users(); } }
 
 async function orders(status = '') {
   const { orders } = await api('/admin/orders?status=' + status);
-  $('#view').innerHTML = `<div class="row"><select onchange="orders(this.value)"><option value="">all</option>${['paid','refund_requested','refunded','pending','canceled'].map((s)=>`<option ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>
-  <div class="scroll"><table><tr><th>When</th><th>User</th><th>Amount</th><th>Provider</th><th>Status</th><th>Reason</th><th></th></tr>
-  ${orders.map((o) => `<tr><td>${when(o.created_at)}</td><td>${esc(o.handle || '(deleted)')}</td><td>${money(o.amount)}${o.tax?` + ${money(o.tax)} tax`:''}</td>
-    <td>${o.provider}</td><td>${o.status}</td><td>${esc(o.refund_reason)}</td>
-    <td>${['paid','refund_requested'].includes(o.status) && !['voucher','comp'].includes(o.provider) ? `<button class="btn" onclick="refund('${o.id}')">Refund</button>` : ''}</td></tr>`).join('')}</table></div>`;
+  $('#view').innerHTML = `<div class="row"><select onchange="orders(this.value)"><option value="">${t('all')}</option>${choices(['paid','refund_requested','refunded','pending','canceled'], status)}</select></div>
+  <div class="scroll"><table><tr><th>${t('When')}</th><th>${t('User')}</th><th>${t('Amount')}</th><th>${t('Provider')}</th><th>${t('Status')}</th><th>${t('Reason')}</th><th></th></tr>
+  ${orders.map((o) => `<tr><td>${when(o.created_at)}</td><td>${esc(o.handle || t('(deleted)'))}</td><td>${money(o.amount)}${o.tax?` ${t('+ {tax} tax', { tax: money(o.tax) })}`:''}</td>
+    <td>${esc(t(o.provider))}</td><td>${esc(t(o.status))}</td><td>${esc(o.refund_reason)}</td>
+    <td>${['paid','refund_requested'].includes(o.status) && !['voucher','comp'].includes(o.provider) ? `<button class="btn" onclick="refund('${o.id}')">${t('Refund')}</button>` : ''}</td></tr>`).join('')}</table></div>`;
 }
-async function refund(id) { if (confirm('Refund this order?')) { await api('/admin/orders/' + id + '/refund', { method:'POST', body: JSON.stringify({ reason:'admin' }) }); orders(); } }
+async function refund(id) { if (confirm(t('Refund this order?'))) { await api('/admin/orders/' + id + '/refund', { method:'POST', body: JSON.stringify({ reason:'admin' }) }); orders(); } }
 
 const FIELDS = { song:['title','artist'], drink:['name'], food:['name'], action:['text'], outfit:['style','color'], shoes:['style','color'], color:['name'] };
 async function content(kind = 'song') {
   const { items } = await api('/admin/content?kind=' + kind);
-  $('#view').innerHTML = `<div class="row"><select onchange="content(this.value)">${Object.keys(FIELDS).map((k)=>`<option ${k===kind?'selected':''}>${k}</option>`).join('')}</select>
-    ${FIELDS[kind].map((f) => `<input id="cf_${f}" placeholder="${f}" ${f==='text'?'style="min-width:420px"':''} />`).join('')}
-    <select id="ctopic"><option value="">any topic</option><option>wealth</option><option>love</option></select>
-    <button class="btn primary" onclick="addContent('${kind}')">Add</button></div>
-    ${kind==='action' ? '<p class="muted">Lucky actions: one concrete thing doable today, with an exact object, number, place or time. No vague words.</p>' : ''}
-    ${kind==='drink' ? '<p class="muted">No alcohol — the server rejects it.</p>' : ''}
-  <div class="scroll"><table><tr><th>Item</th><th>Topic</th><th>Active</th></tr>
-  ${items.map((i) => `<tr><td>${esc(Object.values(i.data).join(' — '))}</td><td>${i.topic || 'any'}</td>
+  $('#view').innerHTML = `<div class="row"><select onchange="content(this.value)">${choices(Object.keys(FIELDS), kind)}</select>
+    ${FIELDS[kind].map((f) => `<input id="cf_${f}" placeholder="${esc(t(f))}" ${f==='text'?'style="min-width:420px"':''} />`).join('')}
+    <select id="ctopic"><option value="">${t('any topic')}</option><option value="wealth">${t('wealth')}</option><option value="love">${t('love')}</option></select>
+    <button class="btn primary" onclick="addContent('${kind}')">${t('Add')}</button></div>
+    ${kind==='action' ? `<p class="muted">${t('Lucky actions: one concrete thing doable today, with an exact object, number, place or time. No vague words.')}</p>` : ''}
+    ${kind==='drink' ? `<p class="muted">${t('No alcohol — the server rejects it.')}</p>` : ''}
+  <div class="scroll"><table><tr><th>${t('Item')}</th><th>${t('Topic')}</th><th>${t('Active')}</th></tr>
+  ${items.map((i) => `<tr><td>${esc(Object.values(i.data).join(' — '))}</td><td>${t(i.topic || 'any')}</td>
     <td><input type="checkbox" ${i.active?'checked':''} onchange="api('/admin/content/${i.id}',{method:'PATCH',body:JSON.stringify({active:this.checked})})" /></td></tr>`).join('')}</table></div>`;
 }
 async function addContent(kind) {
   const data = Object.fromEntries(FIELDS[kind].map((f) => [f, $('#cf_' + f).value.trim()]));
-  if (Object.values(data).some((v) => !v)) return alert('Fill every field');
+  if (Object.values(data).some((v) => !v)) return alert(t('Fill every field'));
   await api('/admin/content', { method:'POST', body: JSON.stringify({ kind, topic: $('#ctopic').value || null, data }) }); content(kind);
 }
 
 async function rewards() {
   const { rewards } = await api('/admin/rewards');
   const total = rewards.filter((r) => r.active).reduce((s, r) => s + r.weight, 0);
-  $('#view').innerHTML = `<p class="muted">Odds are published to users on the draw screen. Draws are free and never tied to spending.</p>
-  <div class="scroll"><table><tr><th>Reward</th><th>Type</th><th>Weight</th><th>Odds</th><th>Active</th></tr>
-  ${rewards.map((r) => `<tr><td>${esc(r.name)}<div class="muted">${esc(r.description)}</div></td><td>${r.type}</td>
+  $('#view').innerHTML = `<p class="muted">${t('Odds are published to users on the draw screen. Draws are free and never tied to spending.')}</p>
+  <div class="scroll"><table><tr><th>${t('Reward')}</th><th>${t('Type')}</th><th>${t('Weight')}</th><th>${t('Odds')}</th><th>${t('Active')}</th></tr>
+  ${rewards.map((r) => `<tr><td>${esc(r.name)}<div class="muted">${esc(r.description)}</div></td><td>${esc(t(r.type))}</td>
     <td><input type="number" min="0" value="${r.weight}" style="width:80px" onchange="api('/admin/rewards/${r.id}',{method:'PATCH',body:JSON.stringify({weight:+this.value})}).then(rewards)" /></td>
-    <td>${r.active && total ? (r.weight / total * 100).toFixed(1) + '%' : '—'}</td>
+    <td>${r.active && total ? (r.weight / total * 100).toLocaleString(lang, { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + '%' : '—'}</td>
     <td><input type="checkbox" ${r.active?'checked':''} onchange="api('/admin/rewards/${r.id}',{method:'PATCH',body:JSON.stringify({active:this.checked})}).then(rewards)" /></td></tr>`).join('')}</table></div>`;
 }
 
 async function privacy() {
   const { requests } = await api('/admin/privacy-requests');
-  $('#view').innerHTML = `<p class="muted">US privacy rights requests. Respond within 45 days.</p>
-  <div class="scroll"><table><tr><th>When</th><th>Email</th><th>Type</th><th>Status</th><th></th></tr>
-  ${requests.map((r) => `<tr><td>${when(r.created_at)}</td><td>${esc(r.email)}</td><td>${r.type}</td><td>${r.status}</td>
-    <td>${r.status==='open' ? `<button class="btn" onclick="api('/admin/privacy-requests/${r.id}',{method:'PATCH'}).then(privacy)">Mark done</button>` : ''}</td></tr>`).join('') || '<tr><td colspan=5 class="muted">No requests.</td></tr>'}</table></div>`;
+  $('#view').innerHTML = `<p class="muted">${t('US privacy rights requests. Respond within 45 days.')}</p>
+  <div class="scroll"><table><tr><th>${t('When')}</th><th>${t('Email')}</th><th>${t('Type')}</th><th>${t('Status')}</th><th></th></tr>
+  ${requests.map((r) => `<tr><td>${when(r.created_at)}</td><td>${esc(r.email)}</td><td>${esc(t(r.type))}</td><td>${esc(t(r.status))}</td>
+    <td>${r.status==='open' ? `<button class="btn" onclick="api('/admin/privacy-requests/${r.id}',{method:'PATCH'}).then(privacy)">${t('Mark done')}</button>` : ''}</td></tr>`).join('') || `<tr><td colspan=5 class="muted">${t('No requests.')}</td></tr>`}</table></div>`;
 }
 
 async function boot() {
   if (!token) return logout();
   try { await api('/admin/stats'); } catch { return; }
+  // A language picked on the sign-in screen is saved to the account; otherwise the account's
+  // language applies, so the choice follows the admin to other browsers.
+  let pending = false;
+  try { pending = localStorage.getItem('fm_admin_lang_pending') === '1'; localStorage.removeItem('fm_admin_lang_pending'); } catch {}
+  if (pending) await api('/me', { method: 'PATCH', body: JSON.stringify({ language: lang }) }).catch(() => {});
+  else {
+    const me = await api('/me').catch(() => null);
+    if (me && isLang(me.language) && me.language !== lang) setLang(me.language, false);
+  }
   $('#login').hidden = true; $('#app').hidden = false; go(current);
 }
+applyLang();
 ssoButtons();
 ssoReturn().then(boot);
 </script>
