@@ -8,11 +8,33 @@
   :root { --bg:#fbf7ef; --card:#fff; --ink:#2b2118; --muted:#7a6a58; --gold:#c8961e; --red:#b33a2b; --line:#eadfcb; }
   * { box-sizing: border-box; }
   body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); }
-  header { display:flex; align-items:center; gap:16px; padding:12px 20px; background:#2b2118; color:#fbe7b5; flex-wrap:wrap; }
-  header b { font-size:16px; } nav { display:flex; gap:4px; flex-wrap:wrap; }
-  nav button { background:none; border:0; color:#fbe7b5; padding:6px 10px; border-radius:6px; cursor:pointer; }
-  nav button.on { background:#4a3a2a; }
-  main { max-width:1100px; margin:0 auto; padding:20px 16px; }
+  /* Sidebar with the sections, language and sign-out; below 800px it becomes a drawer opened from the top bar. */
+  .shell { display:flex; min-height:100vh; }
+  aside { flex:none; width:220px; height:100vh; position:sticky; top:0; display:flex; flex-direction:column; background:#2b2118; color:#fbe7b5; }
+  .brand { display:flex; align-items:center; gap:8px; padding:18px 18px 14px; font-weight:700; font-size:16px; border-bottom:1px solid #4a3a2a; }
+  nav { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding:12px 10px; }
+  nav button { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:0; color:#fbe7b5;
+    padding:9px 12px; border-radius:8px; cursor:pointer; font:inherit; }
+  nav button:hover { background:#3a2c20; }
+  nav button.on { background:#4a3a2a; font-weight:600; box-shadow:inset 3px 0 0 var(--gold); }
+  nav .ic { width:20px; text-align:center; }
+  .foot { padding:12px 14px 16px; border-top:1px solid #4a3a2a; display:flex; flex-direction:column; gap:10px; }
+  .foot .lang select { flex:1; background:#4a3a2a; color:#fbe7b5; border-color:#6a5640; }
+  .who { font-size:12px; color:#cdb98f; word-break:break-all; }
+  .foot .btn { width:100%; }
+  .topbar { display:none; }
+  .scrim { display:none; }
+  main { flex:1; min-width:0; max-width:1100px; padding:20px 24px; }
+  @media (max-width: 800px) {
+    .topbar { display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:5; padding:10px 14px; background:#2b2118; color:#fbe7b5; }
+    .burger { background:none; border:0; color:#fbe7b5; font-size:22px; line-height:1; cursor:pointer; padding:4px 6px; }
+    .shell { display:block; min-height:0; }
+    aside { position:fixed; z-index:20; left:0; top:0; bottom:0; height:auto; width:min(260px, 80vw); transform:translateX(-100%); transition:transform .2s ease; }
+    #app.navOpen aside { transform:none; }
+    #app.navOpen .scrim { display:block; position:fixed; inset:0; z-index:15; background:rgba(0,0,0,.35); }
+    main { padding:16px; }
+  }
+  @media (prefers-reduced-motion: reduce) { aside { transition:none; } }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
   .kpi .v { font-size:24px; font-weight:700; } .kpi .t { color:var(--muted); font-size:12px; }
@@ -25,7 +47,6 @@
   .row { display:flex; gap:8px; align-items:center; margin:0 0 12px; flex-wrap:wrap; }
   #login { max-width:340px; margin:80px auto; } #login input { width:100%; margin-bottom:8px; }
   .lang { display:flex; align-items:center; gap:6px; }
-  header .lang select { background:#4a3a2a; color:#fbe7b5; border-color:#6a5640; }
   #login .lang { justify-content:flex-end; margin-bottom:8px; }
   h2 { margin:24px 0 12px; font-size:16px; } .muted { color:var(--muted); }
   .scroll { overflow-x:auto; }
@@ -48,14 +69,23 @@
   <p id="lerr" class="bad"></p>
 </div>
 <div id="app" hidden>
-  <header><b>💰 <span data-i18n="Fortune Muse Console">Fortune Muse Console</span></b>
-    <nav id="nav"></nav>
-    <span style="margin-left:auto" class="lang">
-      <span aria-hidden="true">🌐</span><select class="langPick" onchange="setLang(this.value)" data-i18n-aria="Language"></select>
-      <button class="btn" onclick="logout()" data-i18n="Sign out">Sign out</button>
-    </span>
-  </header>
-  <main id="view"></main>
+  <div class="topbar">
+    <button class="burger" onclick="toggleNav()" aria-controls="side" aria-expanded="false" data-i18n-aria="Menu" aria-label="Menu">☰</button>
+    <b>💰 <span data-i18n="Fortune Muse Console">Fortune Muse Console</span></b>
+  </div>
+  <div class="shell">
+    <aside id="side">
+      <div class="brand">💰 <span data-i18n="Fortune Muse Console">Fortune Muse Console</span></div>
+      <nav id="nav" data-i18n-aria="Sections" aria-label="Sections"></nav>
+      <div class="foot">
+        <div class="lang"><span aria-hidden="true">🌐</span><select class="langPick" onchange="setLang(this.value)" data-i18n-aria="Language"></select></div>
+        <div id="who" class="who"></div>
+        <button class="btn" onclick="logout()" data-i18n="Sign out">Sign out</button>
+      </div>
+    </aside>
+    <div class="scrim" onclick="toggleNav(false)"></div>
+    <main id="view"></main>
+  </div>
 </div>
 <script>
 // --- Language ---------------------------------------------------------------
@@ -75,6 +105,7 @@ const ZH = [
   ['Not an admin', '不是管理员账号', '不是管理員帳號'],
   ['Error', '出错了', '發生錯誤'],
   // Nav
+  ['Sections', '导航', '導覽'], ['Menu', '菜单', '選單'], ['Signed in as {email}', '已登录：{email}', '已登入：{email}'],
   ['Dashboard', '概览', '總覽'], ['Reports', '举报', '檢舉'], ['Users', '用户', '使用者'], ['Orders', '订单', '訂單'],
   ['Content', '内容库', '內容庫'], ['Draw pool', '抽卡奖池', '抽卡獎池'], ['Privacy', '隐私请求', '隱私請求'],
   // Dashboard
@@ -186,7 +217,7 @@ function setLang(l, save = true) {
   try { localStorage.setItem('fm_admin_lang', l); } catch {}
   applyLang();
   ssoButtons();
-  if (!$('#app').hidden) go(current);
+  if (!$('#app').hidden) { showWho(); go(current); }
   if (!save) return;
   if (token) api('/me', { method: 'PATCH', body: JSON.stringify({ language: l }) }).catch(() => {});
   // Picked on the sign-in screen: saved to the account once signed in (see boot).
@@ -241,8 +272,19 @@ function logout() { token = ''; localStorage.removeItem('fm_admin'); $('#app').h
 
 const tabs = { Dashboard: dashboard, Reports: reports, Users: users, Orders: orders, Content: content, 'Draw pool': rewards, 'AI models': aiModels, Privacy: privacy };
 let current = 'Dashboard';
-function nav() { $('#nav').innerHTML = Object.keys(tabs).map((k) => `<button class="${k===current?'on':''}" onclick="go('${k}')">${esc(t(k))}</button>`).join(''); }
-function go(k) { current = k; nav(); tabs[k](); }
+const TAB_ICON = { Dashboard: '📊', Reports: '🚩', Users: '👥', Orders: '🧾', Content: '📚', 'Draw pool': '🎴', 'AI models': '🤖', Privacy: '🔒' };
+function nav() {
+  $('#nav').innerHTML = Object.keys(tabs).map((k) => `<button class="${k===current?'on':''}" ${k===current?'aria-current="page"':''} onclick="go('${k}')">` +
+    `<span class="ic" aria-hidden="true">${TAB_ICON[k]}</span>${esc(t(k))}</button>`).join('');
+}
+function go(k) { current = k; nav(); toggleNav(false); tabs[k](); }
+/** Opens or closes the sidebar drawer on narrow screens. */
+function toggleNav(open = !$('#app').classList.contains('navOpen')) {
+  $('#app').classList.toggle('navOpen', open);
+  $('.burger').setAttribute('aria-expanded', String(open));
+}
+let adminEmail = '';
+const showWho = () => { $('#who').textContent = adminEmail ? t('Signed in as {email}', { email: adminEmail }) : ''; };
 
 async function dashboard() {
   const s = await api('/admin/stats');
@@ -461,11 +503,11 @@ async function boot() {
   // language applies, so the choice follows the admin to other browsers.
   let pending = false;
   try { pending = localStorage.getItem('fm_admin_lang_pending') === '1'; localStorage.removeItem('fm_admin_lang_pending'); } catch {}
+  const me = await api('/me').catch(() => null);
   if (pending) await api('/me', { method: 'PATCH', body: JSON.stringify({ language: lang }) }).catch(() => {});
-  else {
-    const me = await api('/me').catch(() => null);
-    if (me && isLang(me.language) && me.language !== lang) setLang(me.language, false);
-  }
+  else if (me && isLang(me.language) && me.language !== lang) setLang(me.language, false);
+  adminEmail = me?.email ?? '';
+  showWho();
   $('#login').hidden = true; $('#app').hidden = false; go(current);
 }
 applyLang();
