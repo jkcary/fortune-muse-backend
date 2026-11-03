@@ -202,6 +202,7 @@ describe('memory (M5)', () => {
     const plain = (await app.inject({ method: 'GET', url: '/greeting?deityId=master-bao', headers: u.auth })).json();
     expect(plain.memoryRef).toBeNull();
 
+    await app.inject({ method: 'PATCH', url: '/settings/memory', headers: u.auth, payload: { enabled: true } });
     await app.inject({ method: 'POST', url: '/feedback', headers: u.auth, payload: { content: 'Feeling nervous about my interview', mood: 'low' } });
     // Backdate the memory to noon yesterday in the user's time zone (a plain "now - 1 day" fails on DST change days).
     await pool.query(`UPDATE memories SET created_at = ((date_trunc('day', now() AT TIME ZONE u.timezone) - interval '12 hours') AT TIME ZONE u.timezone)
@@ -244,6 +245,8 @@ describe('same-question rooms (M7)', () => {
   it('puts similar questions in one room, filters chat, supports report/block, and closes after 24h', async () => {
     const a = await newUser(app);
     const b = await newUser(app);
+    await app.inject({ method: 'PATCH', url: '/settings/rooms', headers: a.auth, payload: { enabled: true } });
+    await app.inject({ method: 'PATCH', url: '/settings/rooms', headers: b.auth, payload: { enabled: true } });
     const ra = await paidReading(app, a.auth, 'Should I ask my boss for a raise?');
     const rb = await paidReading(app, b.auth, 'Will I get a promotion this year?');
     const ja = (await app.inject({ method: 'POST', url: '/rooms/join', headers: a.auth, payload: { readingId: ra.id } })).json();

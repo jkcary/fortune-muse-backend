@@ -1,17 +1,19 @@
 {
   "name": "fortune-muse-backend",
   "version": "0.1.0",
-  "description": "Fortune Muse (财神签) API — modular monolith",
+  "description": "Fortune Muse (\u8d22\u795e\u7b7e) API \u2014 modular monolith",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json && node --input-type=module -e \"import {cpSync} from 'node:fs'; cpSync('src/db/migrations','dist/db/migrations',{recursive:true})\"",
+    "build": "node scripts/build.mjs",
     "start": "node dist/index.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "prompts:doc": "tsx src/scripts/prompts-doc.ts",
     "admin:create": "tsx src/scripts/create-admin.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "contracts:sync": "node scripts/sync-contracts.mjs",
+    "contracts:check": "node scripts/sync-contracts.mjs --check"
   },
   "license": "UNLICENSED",
   "dependencies": {

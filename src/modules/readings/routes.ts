@@ -13,7 +13,7 @@ import { getStripe } from '../payments/stripe.js';
 import { HELP_RESOURCES, screenQuestion } from '../safety/safety.js';
 import { clusterQuestion, PRICES } from './catalog.js';
 import { MAX_ANSWERS, runIntake, Summary, Turn, USER_MAX } from './intake.js';
-import { runGeneration } from './service.js';
+import { enqueue, kickDelivery } from '../delivery/queue.js';
 
 const publicReading = (r: any) => ({
   id: r.id, deityId: r.deity_id, topic: r.topic, tier: r.tier, question: r.question,
@@ -85,27 +85,30 @@ export default async function readingRoutes(app: FastifyInstance) {
 
     const { reading, order } = await tx(async (c) => {
       await c.query('INSERT INTO consents(user_id,type,version) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [me.id, 'digital_content', LEGAL_VERSION]);
+      let voucherId: string | null = null;
       if (body.useVoucher) {
         const v = await one(c,
           `UPDATE inventory SET used_at=now() WHERE id = (
              SELECT id FROM inventory WHERE user_id=$1 AND reward_id='free-reading' AND used_at IS NULL LIMIT 1 FOR UPDATE SKIP LOCKED)
            RETURNING id`, [me.id]);
         if (!v) throw conflict('no_voucher', 'You have no free reading vouchers.');
+        voucherId=v.id;
       }
       const order = await one(c,
-        `INSERT INTO orders(user_id, provider, amount, status) VALUES ($1,$2,$3,$4) RETURNING *`,
+        `INSERT INTO orders(user_id, provider, amount, status, voucher_inventory_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
         [me.id, free ? 'comp' : body.useVoucher ? 'voucher' : config.devPayments ? 'dev' : 'stripe',
-          free || body.useVoucher ? 0 : price, free || body.useVoucher ? 'paid' : 'pending']);
+          free || body.useVoucher ? 0 : price, free || body.useVoucher ? 'paid' : 'pending', voucherId]);
       const reading = await one(c,
         `INSERT INTO readings(user_id, deity_id, topic, tier, question, topic_cluster, price, order_id, local_date, intake_json)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
         [me.id, body.deityId, body.topic, body.tier, body.question, cluster.id, order.amount, order.id, today, body.intake ?? null]);
+      if (free || body.useVoucher) await enqueue('legacy', reading.id, c);
       return { reading, order };
     });
     track(me.id, 'reading_created', { tier: body.tier, voucher: body.useVoucher, comp: free });
 
     if (free || body.useVoucher) {
-      void runGeneration(reading.id, req.log);
+      kickDelivery();
       return { reading: publicReading(reading), payment: { type: 'none' } };
     }
     if (config.devPayments) {
@@ -151,8 +154,8 @@ export default async function readingRoutes(app: FastifyInstance) {
   app.get('/orders', async (req) => {
     const me = await requireUser(req);
     const orders = await many(pool,
-      `SELECT o.id, o.amount, o.currency, o.tax, o.status, o.provider, o.created_at, r.id AS reading_id, r.tier
-       FROM orders o LEFT JOIN readings r ON r.order_id=o.id WHERE o.user_id=$1 AND o.status <> 'pending' ORDER BY o.created_at DESC`, [me.id]);
+      `SELECT oc.id AS oracle_id, o.id, o.amount, o.currency, o.tax, o.status, o.provider, o.created_at, r.id AS reading_id, r.tier
+       FROM orders o LEFT JOIN readings r ON r.order_id=o.id LEFT JOIN oracle_casts oc ON oc.order_id=o.id WHERE o.user_id=$1 AND o.status <> 'pending' ORDER BY o.created_at DESC`, [me.id]);
     return { orders };
   });
 
@@ -164,6 +167,9 @@ export default async function readingRoutes(app: FastifyInstance) {
       `UPDATE orders SET status='refund_requested', refund_reason=$3, updated_at=now()
        WHERE id=$1 AND user_id=$2 AND status='paid' AND provider NOT IN ('voucher','comp') RETURNING id, status`, [id, me.id, reason]);
     if (!o) throw badRequest('not_refundable', 'This order cannot be refunded.');
+    const undelivered=await one(pool,`SELECT id FROM readings WHERE order_id=$1 AND status<>'ready'
+      UNION ALL SELECT id FROM oracle_casts WHERE order_id=$1 AND premium_status<>'ready' LIMIT 1`,[id]);
+    if(undelivered){await enqueue('refund',id);kickDelivery();}
     return o;
   });
 }

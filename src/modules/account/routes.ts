@@ -13,7 +13,9 @@ export async function exportUserData(userId: string) {
       'SELECT id, email, handle, country, language, gender, age_range, timezone, memory_enabled, rooms_enabled, created_at FROM users WHERE id=$1', [userId]),
     avatar: await one(pool, 'SELECT base_id, customization_json, mood FROM avatars WHERE user_id=$1', [userId]),
     consents: await q('SELECT type, version, granted_at FROM consents WHERE user_id=$1'),
-    readings: await q('SELECT id, deity_id, topic, tier, question, result_json, status, created_at FROM readings WHERE user_id=$1 ORDER BY created_at'),
+    readings: await q('SELECT id, deity_id, topic, tier, question, intake_json, result_json, status, created_at FROM readings WHERE user_id=$1 ORDER BY created_at'),
+    oracleReadings: await q('SELECT id,topic,question,context,rounds,basis_json,premium_json,premium_status,private_mode,note,favorite,created_at FROM oracle_casts WHERE user_id=$1 ORDER BY created_at'),
+    oracleFollowups: await q('SELECT f.id,f.cast_id,f.question,f.answer,f.status,f.created_at FROM oracle_followups f JOIN oracle_casts c ON c.id=f.cast_id WHERE c.user_id=$1'),
     orders: await q('SELECT id, amount, currency, tax, status, created_at FROM orders WHERE user_id=$1 ORDER BY created_at'),
     memories: await q('SELECT content, mood_tag, created_at FROM memories WHERE user_id=$1 ORDER BY created_at'),
     dailyDraws: await q('SELECT date, reward_id FROM daily_draws WHERE user_id=$1 ORDER BY date'),
@@ -26,6 +28,7 @@ export async function exportUserData(userId: string) {
 
 /** Deletes the account and everything tied to it. Orders stay, detached from the person, for tax records. */
 export async function deleteUser(userId: string) {
+  await pool.query(`INSERT INTO delivery_jobs(kind,subject_id) SELECT 'refund',id FROM orders WHERE user_id=$1 AND status='paid' AND EXISTS(SELECT 1 FROM oracle_casts c WHERE c.order_id=orders.id AND c.premium_status IN ('queued','generating','failed')) ON CONFLICT DO NOTHING`,[userId]);
   await pool.query('DELETE FROM users WHERE id=$1', [userId]);
 }
 

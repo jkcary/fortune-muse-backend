@@ -43,6 +43,7 @@ export default async function memoryRoutes(app: FastifyInstance) {
       mood: z.enum(MOODS).optional(),
     }).refine((b) => b.content || b.mood, 'Write something or pick a mood').parse(req.body);
 
+    if (body.readingId && !(await one(pool,'SELECT id FROM readings WHERE id=$1 AND user_id=$2',[body.readingId,me.id]))) throw notFound('Reading not found');
     if (body.mood) await pool.query('UPDATE avatars SET mood=$2, updated_at=now() WHERE user_id=$1', [me.id, body.mood]);
     let saved = false;
     if (me.memory_enabled) {

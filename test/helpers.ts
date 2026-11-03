@@ -6,6 +6,8 @@ import { devOutbox } from '../src/lib/mailer.js';
 import { buildServer } from '../src/server.js';
 
 export async function setup(): Promise<FastifyInstance> {
+  const database=(await pool.query('SELECT current_database() AS name')).rows[0].name;
+  if(process.env.NODE_ENV!=='test'||!database.endsWith('_test'))throw new Error('Refusing to reset a database without the _test suffix.');
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await migrate();
   await seed();

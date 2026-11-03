@@ -95,7 +95,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!o) throw notFound();
     if (!['paid', 'refund_requested'].includes(o.status)) throw badRequest('not_refundable');
     await refundOrder(id, reason);
-    await pool.query(`UPDATE readings SET status='refunded' WHERE order_id=$1`, [id]);
     return { ok: true };
   });
 

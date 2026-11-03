@@ -14,7 +14,7 @@ import { applyAdminRole } from '../../lib/super.js';
 import { isValidTimeZone } from '../../lib/time.js';
 import { randomAvatar } from '../profile/avatar.js';
 
-export const LEGAL_VERSION = '2026-10-30';
+export const LEGAL_VERSION = '2026-11-02';
 
 const Email = z.string().trim().toLowerCase().email().max(254);
 const Password = z.string().min(8).max(128);

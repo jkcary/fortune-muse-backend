@@ -7,9 +7,9 @@ import { CONTENT, DEITIES, REWARDS } from './seedData.js';
 export async function seed() {
   for (const d of DEITIES) {
     await pool.query(
-      `INSERT INTO deities(id,name,title,theme,persona_prompt,greeting,image_assets,sort)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING`,
-      [d.id, d.name, d.title, d.theme, d.persona_prompt, d.greeting, d.image_assets, d.sort],
+      `INSERT INTO deities(id,name,title,theme,persona_prompt,greeting,image_assets,sort,topic)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
+      [d.id, d.name, d.title, d.theme, d.persona_prompt, d.greeting, d.image_assets, d.sort, d.topic],
     );
   }
   for (const r of REWARDS) {

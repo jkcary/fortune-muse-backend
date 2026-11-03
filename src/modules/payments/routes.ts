@@ -5,7 +5,7 @@ import { config } from '../../config.js';
 import { one, pool } from '../../db/pool.js';
 import { requireUser } from '../../lib/auth.js';
 import { badRequest, notFound } from '../../lib/errors.js';
-import { markOrderPaid } from '../readings/service.js';
+import { markOrderPaid, applyRefundStatus } from '../readings/service.js';
 import { getStripe } from './stripe.js';
 
 export default async function paymentRoutes(app: FastifyInstance) {
@@ -25,6 +25,11 @@ export default async function paymentRoutes(app: FastifyInstance) {
         const s = event.data.object;
         const orderId = s.metadata?.orderId;
         if (orderId && s.payment_status === 'paid') {
+          const order=await one(pool,'SELECT amount,currency,provider_session_id FROM orders WHERE id=$1',[orderId]);
+          if (!order || order.currency!==s.currency || order.amount!==s.amount_subtotal || order.provider_session_id!==s.id) {
+            req.log.error({orderId},'payment verification mismatch');
+            return reply.code(400).send({error:'payment_mismatch'});
+          }
           if (s.currency !== 'usd') {
             req.log.warn({ orderId, currency: s.currency }, 'unexpected currency');
           } else {
@@ -32,6 +37,9 @@ export default async function paymentRoutes(app: FastifyInstance) {
             await markOrderPaid(orderId, pi, s.total_details?.amount_tax ?? 0);
           }
         }
+      }
+      if (event.type === 'refund.created' || event.type === 'refund.updated' || event.type === 'refund.failed') {
+        await applyRefundStatus(event.data.object);
       }
       if (event.type === 'checkout.session.expired') {
         const orderId = event.data.object.metadata?.orderId;

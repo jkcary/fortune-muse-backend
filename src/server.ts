@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { pool } from './db/pool.js';
 import { HttpError } from './lib/errors.js';
 import { devOutbox } from './lib/mailer.js';
+import oracleRoutes from './modules/oracle/routes.js';
 import accountRoutes from './modules/account/routes.js';
 import adminRoutes from './modules/admin/routes.js';
 import aiRoutes from './modules/ai/routes.js';
@@ -29,7 +30,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function buildServer() {
   const app = Fastify({
-    logger: config.NODE_ENV === 'test' ? false : { level: 'info', redact: ['req.headers.authorization'] },
+    logger: config.NODE_ENV === 'test' ? false : { level: 'info', redact: ['req.headers.authorization', 'req.headers.x-oracle-token'] },
     trustProxy: true,
   });
 
@@ -66,7 +67,7 @@ export async function buildServer() {
   }
 
   for (const routes of [authRoutes, oauthRoutes, profileRoutes, deityRoutes, readingRoutes, paymentRoutes, memoryRoutes, drawRoutes,
-    roomRoutes, moderationRoutes, accountRoutes, adminRoutes, aiRoutes]) {
+    roomRoutes, moderationRoutes, accountRoutes, adminRoutes, aiRoutes, oracleRoutes]) {
     await app.register(routes);
   }
   return app;
