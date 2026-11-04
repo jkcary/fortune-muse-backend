@@ -11,6 +11,7 @@ import { pool } from './db/pool.js';
 import { HttpError } from './lib/errors.js';
 import { devOutbox } from './lib/mailer.js';
 import oracleRoutes from './modules/oracle/routes.js';
+import gardenRoutes from './modules/garden/routes.js';
 import accountRoutes from './modules/account/routes.js';
 import adminRoutes from './modules/admin/routes.js';
 import aiRoutes from './modules/ai/routes.js';
@@ -67,7 +68,7 @@ export async function buildServer() {
   }
 
   for (const routes of [authRoutes, oauthRoutes, profileRoutes, deityRoutes, readingRoutes, paymentRoutes, memoryRoutes, drawRoutes,
-    roomRoutes, moderationRoutes, accountRoutes, adminRoutes, aiRoutes, oracleRoutes]) {
+    roomRoutes, moderationRoutes, accountRoutes, adminRoutes, aiRoutes, oracleRoutes, gardenRoutes]) {
     await app.register(routes);
   }
   return app;

@@ -15,6 +15,53 @@ export interface Basis {
   transformation: Hexagram | null;
   moving: number[];
 }
+export interface OracleDoor {
+  id: "a" | "b";
+  title: string;
+  perspective: string;
+  tradeoff: string;
+  experiment: string;
+}
+export interface OracleGlimpse {
+  language: "en-US" | "en-GB" | "zh-Hans" | "zh-Hant";
+  reflection: string;
+  question: string;
+  doors: [OracleDoor, OracleDoor];
+  aiGenerated: boolean;
+  generator: string;
+}
+export type JourneyStatus = "planned" | "tried" | "waiting" | "paused";
+export interface OracleDoorExerciseContent {
+  version: 1;
+  door: "a" | "b";
+  language: OracleGlimpse["language"];
+  priorityQuestion: string;
+  priorities: { id: string; label: string }[];
+  costQuestion: string;
+  costs: { id: string; label: string }[];
+  reflections: { priority: string; cost: string; summary: string; prompt: string; generator: string }[];
+  aiGenerated: true;
+  generator: string;
+}
+export interface OracleReturnPreferences {
+  currentCastId: string | null;
+}
+export interface OracleJourney {
+  selectedDoor: "a" | "b" | null;
+  feedback: "fits" | "misses" | null;
+  action: string;
+  actionNotes?: string;
+  followUpEnabled: boolean;
+  status: JourneyStatus;
+  doorExercise?: { version?: 1; door: "a" | "b"; priority: string; cost: string };
+  updates: {
+    id: string;
+    text: string;
+    status: JourneyStatus;
+    kind?: "status" | "changed";
+    createdAt: string;
+  }[];
+}
 export interface OracleCast {
   id: string;
   version: 2;
@@ -25,10 +72,14 @@ export interface OracleCast {
   rounds: { coins: number[]; value: number }[];
   basis: Basis | null;
   createdAt: string;
+  updatedAt?: string;
   expiresAt: string | null;
   saved: boolean;
   favorite: boolean;
   note: string;
+  glimpse: OracleGlimpse | null;
+  doorExerciseContent?: OracleDoorExerciseContent | null;
+  journey: OracleJourney | null;
   premiumStatus:
     | "free"
     | "awaiting_payment"

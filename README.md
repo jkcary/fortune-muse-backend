@@ -4,7 +4,7 @@ See [the refactor handover](https://github.com/jkcary/fortune-muse-frontend/blob
 
 New client routes: /home, /ask, /cast/:id, /oracle/:id, /journal, /sign-in, /profile, /method, /sample and /operations (admin).
 
-New backend API: /oracle/*. Apply all SQL migrations through 011 before starting. For Stripe, also subscribe to refund.created, refund.updated and refund.failed alongside the existing checkout events. The API's worker scheduler recovers deliveries on startup and polls every three seconds.
+New backend API: /oracle/*. Apply all SQL migrations through 012 before starting. Free personal reflections and optional story tracking now use the access-controlled /oracle/casts/:id/glimpse and /oracle/casts/:id/journey endpoints. For Stripe, also subscribe to refund.created, refund.updated and refund.failed alongside the existing checkout events. The API's worker scheduler recovers deliveries on startup and polls every three seconds.
 
 The v2 public TypeScript contract is authored in backend/src/modules/oracle/contracts.ts. Run npm run contracts:sync in backend after changing it, and npm run contracts:check to detect drift. The generated frontend contract allows the two projects to build independently.
 
